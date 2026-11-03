@@ -28,9 +28,8 @@ public class MySqlSessionLogStore implements SessionLogStore {
         long userId = parseUserId(key.userId());
         long now = System.currentTimeMillis();
         jdbc.update("""
-                INSERT INTO agent_session(user_id, agent_id, session_id, created_at, updated_at)
+                INSERT IGNORE INTO agent_session(user_id, agent_id, session_id, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)
                 """, userId, key.agentId(), key.sessionId(), now, now);
         return new JournalSessionLog(new MySqlAtomicSessionStorage(userId), key.storagePath());
     }

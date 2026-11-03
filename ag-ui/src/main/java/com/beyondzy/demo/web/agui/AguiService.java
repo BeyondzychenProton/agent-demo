@@ -29,7 +29,7 @@ import reactor.core.scheduler.Schedulers;
  *
  * <p>设计口径（对应改写后的大纲 5.2.2 / 5.4）：
  * <ul>
- *   <li>会话事实留在 SessionLog，列表摘要存入可重建的本地读取索引；
+ *   <li>会话事实留在 SessionLog，列表摘要从执行日志与 Inbox 派生；
  *   <li>执行仍由 {@link ChatSessions} 提交，本类只做“事件翻译 + 协议外壳”；
  *   <li>聊天与工具事件沿 AG-UI 输出；审批操作走独立服务端视图，本层不声明 CopilotKit 原生 HITL 能力。
  * </ul>
@@ -90,7 +90,7 @@ public final class AguiService {
 
     // ===================== 线程列表 / 创建 =====================
 
-    /** GET /agui/run/threads：从持久化摘要索引分页读取线程。 */
+    /** GET /agui/run/threads：从 SessionLog 派生的摘要分页读取线程。 */
     Map<String, Object> listThreads(int limit, String cursor) {
         ThreadCatalog.Page page = sessions.threads(limit, cursor);
         List<Map<String, Object>> threads = new ArrayList<>();

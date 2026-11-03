@@ -1,91 +1,85 @@
 package com.beyondzy.demo.session;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
-import java.nio.file.Path;
+import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.session.SessionEvent;
+import io.agentscope.core.session.SessionInbox;
+import io.agentscope.core.session.SessionLog;
+import io.agentscope.core.util.JsonUtils;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-@org.junit.jupiter.api.Disabled("旧本地存储测试装配已移除，待改用隔离的 MySQL 测试库")
 final class ThreadCatalogTest {
-    @TempDir Path workspace;
-
     @Test
-    void paginationAndRestartKeepTitlesAndTimestamps() throws Exception {
-        ThreadCatalog catalog = new ThreadCatalog(workspace);
-        catalog.submitted("first", "第一条消息");
-        long firstCreatedAt = catalog.get("first").createdAt();
-        Thread.sleep(3);
-        catalog.submitted("second", "第二条消息");
+    void derivesTitleOrderAndRestartFromCommittedInbox() {
+        var first = new Log();
+        first.inbox.events.add(event(1, 1000, "inbox/accepted",
+                new SessionInbox.Command("c1", "submit", "t1", List.of(user("第一条消息")), List.of())));
+        var second = new Log();
+        second.inbox.events.add(event(1, 2000, "inbox/accepted",
+                new SessionInbox.Command("c2", "submit", "t2", List.of(user("第二条消息")), List.of())));
+        var ids = List.of("first", "second", "phantom");
+        var logs = Map.of("first", first, "second", second, "phantom", new Log());
+        var catalog = new ThreadCatalog(() -> ids, logs::get, null);
 
-        ThreadCatalog.Page firstPage = catalog.page(1, null);
-        assertEquals(1, firstPage.threads().size());
-        assertEquals("second", firstPage.threads().get(0).id());
-        assertNotNull(firstPage.nextCursor());
-
-        ThreadCatalog.Page secondPage = catalog.page(1, firstPage.nextCursor());
-        assertEquals(1, secondPage.threads().size());
-        assertEquals("first", secondPage.threads().get(0).id());
-        assertNull(secondPage.nextCursor());
-
-        ThreadCatalog reopened = new ThreadCatalog(workspace);
-        assertEquals("第一条消息", reopened.get("first").title());
-        assertEquals(firstCreatedAt, reopened.get("first").createdAt());
-        assertEquals("second", reopened.page(1, null).threads().get(0).id());
-    }
-
-    @Test
-    void staleRowsAreRemovedAndBadCursorIsRejected() {
-        ThreadCatalog catalog = new ThreadCatalog(workspace);
-        catalog.submitted("committed", "已提交");
-        catalog.submitted("phantom", "未落盘");
-        catalog.retain(Set.of("committed"));
-
+        first.events.add(event(1, 1050, "run/start", Map.of()));
+        first.events.add(event(2, 1100, "run/end", Map.of("status", "completed")));
+        assertEquals("第一条消息", catalog.get("first").title());
+        assertEquals(0, first.earlyReads);
+        assertEquals(1000, catalog.get("first").createdAt());
         assertNull(catalog.get("phantom"));
-        assertEquals(1, catalog.page(20, null).threads().size());
-        assertFalse(catalog.get("committed").title().isBlank());
+        var firstPage = catalog.page(1, null);
+        assertEquals("second", firstPage.threads().getFirst().id());
+        assertNotNull(firstPage.nextCursor());
+        assertEquals("first", catalog.page(1, firstPage.nextCursor()).threads().getFirst().id());
         assertThrows(IllegalArgumentException.class, () -> catalog.page(1, "bad"));
-    }
 
-    @Test void 列表翻页期间更新时间变化不会遗漏旧快照成员() throws Exception {
-        var catalog = new ThreadCatalog(workspace);
-        catalog.submitted("first", "第一条"); Thread.sleep(3);
-        catalog.submitted("second", "第二条"); Thread.sleep(3);
-        catalog.submitted("third", "第三条");
-        var page = catalog.page(1, null);
-        assertEquals("third", page.threads().get(0).id());
-        catalog.submitted("first", "更新第一条");
-        var next = catalog.page(1, page.nextCursor());
-        var last = catalog.page(1, next.nextCursor());
-        assertEquals("second", next.threads().get(0).id());
-        assertEquals("first", last.threads().get(0).id());
+        var reopened = new ThreadCatalog(() -> ids, logs::get, null);
+        assertEquals(catalog.get("first"), reopened.get("first"));
+        first.events.add(event(3, 3000, "run/end", Map.of("status", "completed")));
+        assertEquals("first", reopened.page(1, null).threads().getFirst().id());
+        assertEquals("第一条消息", reopened.get("first").title());
     }
 
     @Test
-    void displaySnapshotSurvivesRestartAndRejectsOldLogPosition() {
-        ThreadCatalog catalog = new ThreadCatalog(workspace);
-        ThreadCatalog.DisplaySnapshot value = new ThreadCatalog.DisplaySnapshot(12,
-                List.of(new ThreadCatalog.DisplayMessage("m1", "user", "你好"),
-                        new ThreadCatalog.DisplayMessage("m2", "assistant", "你好！")),
-                List.of(new ThreadCatalog.DisplayTurn("r1", "finished")));
-        catalog.saveDisplay("thread", value);
+    void legacyExecutionFactProvidesTitleWithoutInbox() {
+        var log = new Log();
+        log.events.add(event(1, 1500, "message/user", Map.of("message", user("旧会话"))));
+        var catalog = new ThreadCatalog(() -> List.of("legacy"), id -> log, null);
+        assertEquals("旧会话", catalog.get("legacy").title());
+    }
 
-        ThreadCatalog reopened = new ThreadCatalog(workspace);
-        assertEquals(value, reopened.display("thread", 12));
-        assertNull(reopened.display("thread", 13));
-        assertEquals(value, reopened.previousDisplay("thread", 13));
-        assertNull(reopened.previousDisplay("thread", 12));
+    private static Msg user(String text) {
+        return Msg.builder().id("m-" + text).role(MsgRole.USER).textContent(text).build();
+    }
 
-        reopened.saveDisplay("thread", new ThreadCatalog.DisplaySnapshot(13,
-                List.of(new ThreadCatalog.DisplayMessage("m3", "user", "新消息")), List.of()));
-        assertNull(reopened.display("thread", 12));
-        assertEquals(1, reopened.display("thread", 13).messages().size());
-        assertEquals(0, reopened.display("thread", 13).turns().size());
+    private static SessionEvent event(long seq, long at, String type, Object payload) {
+        return new SessionEvent(1, "e" + seq, seq, at, type, null, "t", false,
+                JsonUtils.getJsonCodec().toJson(payload));
+    }
+
+    private static final class Log implements SessionLog {
+        final List<SessionEvent> events = new ArrayList<>();
+        int earlyReads;
+        final Log inbox;
+        Log() { this(true); }
+        private Log(boolean withInbox) { inbox = withInbox ? new Log(false) : this; }
+        @Override public SessionLog inbox() { return inbox; }
+        @Override public Head head() { return new Head(events.size(), 0, null, 0, null); }
+        @Override public List<SessionEvent> readAfter(long after, int limit) {
+            if (after == 0) earlyReads++;
+            return events.stream().filter(event -> event.seq() > after).limit(limit).toList();
+        }
+        @Override public Writer acquire(String owner, Duration lease) { throw new UnsupportedOperationException(); }
+        @Override public void renew(Writer writer, Duration lease) { throw new UnsupportedOperationException(); }
+        @Override public void release(Writer writer) { throw new UnsupportedOperationException(); }
+        @Override public Head commit(Writer writer, String batch, long seq, List<SessionEvent> events) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

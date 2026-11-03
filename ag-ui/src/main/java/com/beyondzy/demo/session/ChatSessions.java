@@ -29,7 +29,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import com.beyondzy.demo.service.ThreadCatalogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,17 +98,13 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, null, "local-user", null);
+        this(workspace, model, null, "local-user", null);
     }
 
-    public ChatSessions(Path workspace, Model model, ThreadCatalogService catalogService) {
-        this(workspace, model, catalogService, null, "local-user", null);
-    }
-
-    public ChatSessions(Path workspace, Model model, ThreadCatalogService catalogService,
+    public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId, DataSource dataSource) {
-        if (catalogService == null || sessionLogStore == null || dataSource == null)
-            throw new IllegalArgumentException("ChatSessions 需要 MySQL 数据源、会话存储和目录服务");
+        if (sessionLogStore == null || dataSource == null)
+            throw new IllegalArgumentException("ChatSessions 需要 MySQL 数据源和会话存储");
         modelName = model.getModelName();
         this.userId = userId;
         store = sessionLogStore;
@@ -146,13 +141,11 @@ public final class ChatSessions implements AutoCloseable {
                         .disableAtPathExpansion()
                         .maxIters(8)
                         .build();
-        catalog = new ThreadCatalog(catalogService, dataSource);
+        catalog = new ThreadCatalog(this::list, this::log, dataSource);
         displayViews = new DisplayViewStore(dataSource);
-        // 启动时恢复已落盘会话，并根据日志水位修复列表读取索引。
+        // 启动时恢复已落盘会话；目录按需从两份日志派生。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());
-        existing.forEach(id -> catalog.sync(id, log(id)));
-        catalog.retain(java.util.Set.copyOf(existing));
         projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, dataSource);
     }
 
@@ -468,12 +461,6 @@ public final class ChatSessions implements AutoCloseable {
     public AgentSession.Task submit(String session, String requestId, String text) {
         validateText(text);
         AgentSession.Task task = session(session).submit(id(requestId), text);
-        try {
-            catalog.submitted(id(session), text);
-        } catch (RuntimeException error) {
-            // 摘要写入失败不能使已经接受的执行被误报为提交失败。
-            logger.warn("会话摘要写入失败，重启时将从日志修复", error);
-        }
         return task;
     }
 

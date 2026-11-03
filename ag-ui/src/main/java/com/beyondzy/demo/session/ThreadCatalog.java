@@ -1,14 +1,12 @@
 package com.beyondzy.demo.session;
 
-import com.beyondzy.demo.domain.ThreadCatalogBean;
-import com.beyondzy.demo.service.ThreadCatalogService;
-import com.beyondzy.demo.snapshot.ChatHistory;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.session.SessionEvent;
+import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
+import io.agentscope.core.util.JsonUtils;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,11 +14,15 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.List;
-import java.util.Set;
 import javax.sql.DataSource;
 
-/** MySQL 会话目录和已完成会话的展示快照；执行日志仍是会话内容的权威来源。 */
+/** 从 SessionLog 和 Inbox 派生会话目录；已完成会话的展示快照仍保存在 MySQL。 */
 public final class ThreadCatalog {
     public record Summary(String id, String title, long createdAt, long updatedAt, long seq, boolean named) {}
     public record Page(List<Summary> threads, String nextCursor) {}
@@ -29,76 +31,96 @@ public final class ThreadCatalog {
     public record DisplaySnapshot(long seq, List<DisplayMessage> messages, List<DisplayTurn> turns) {}
     private record Position(long updatedAt, String id, long expires) {}
 
-    private final ThreadCatalogService service;
+    private record Cached(Summary summary, long inboxSeq) {}
+
+    private final Supplier<List<String>> ids;
+    private final Function<String, SessionLog> logs;
+    private final Map<String, Cached> summaries = new HashMap<>();
     private final DataSource dataSource;
 
-    ThreadCatalog(ThreadCatalogService service, DataSource dataSource) {
-        this.service = service;
+    ThreadCatalog(Supplier<List<String>> ids, Function<String, SessionLog> logs, DataSource dataSource) {
+        this.ids = ids;
+        this.logs = logs;
         this.dataSource = dataSource;
     }
 
-    @Deprecated(forRemoval = true)
-    ThreadCatalog(Path workspace) {
-        throw new UnsupportedOperationException("旧文件型会话目录已移除，请注入 MySQL 服务");
-    }
-
     synchronized Summary get(String id) {
-        ThreadCatalogBean row = service.findById(id);
-        return row == null ? null : summary(row);
+        if (!ids.get().contains(id)) return null;
+        return sync(id, logs.apply(id));
     }
 
-    /** 从已提交日志补齐目录摘要。 */
-    synchronized void sync(String id, SessionLog log) {
-        Summary old = get(id);
-        long head = log.head().seq();
-        if (old != null && old.seq() == head) return;
-        long after = old == null || old.seq() > head ? 0 : old.seq();
-        long firstAt = 0, lastAt = 0;
-        for (SessionEvent event : log.scan(after, head)) {
-            long at = event.occurredAt();
-            if (at <= 0) continue;
-            if (firstAt == 0) firstAt = at;
-            lastAt = at;
+    /** 只扫描新增事实；标题取自已提交 Inbox 中的首条用户消息。 */
+    synchronized Summary sync(String id, SessionLog log) {
+        long head = log.head().seq(), inboxHead = log.inbox().head().seq();
+        Cached cached = summaries.get(id);
+        if (cached != null && cached.summary().seq() == head && cached.inboxSeq() == inboxHead)
+            return cached.summary();
+        if (head == 0 && inboxHead == 0) {
+            summaries.remove(id);
+            return null;
         }
-        long now = System.currentTimeMillis();
-        long createdAt = old == null ? (firstAt > 0 ? firstAt : now) : old.createdAt();
-        long updatedAt = old == null ? (lastAt > 0 ? lastAt : createdAt) : Math.max(old.updatedAt(), lastAt);
-        String title = old == null ? fallback(id) : old.title();
+        Summary old = cached == null ? null : cached.summary();
+        long createdAt = old == null ? Long.MAX_VALUE : old.createdAt();
+        long updatedAt = old == null ? 0 : old.updatedAt();
+        String name = old == null ? fallback(id) : old.title();
         boolean named = old != null && old.named();
-        if (!named && head > 0) {
-            try {
-                for (Msg message : ChatHistory.snapshot(id, log).messages()) {
+        for (SessionEvent event : log.inbox().scan(cached == null ? 0 : cached.inboxSeq(), inboxHead)) {
+            if (event.occurredAt() > 0) {
+                createdAt = Math.min(createdAt, event.occurredAt());
+                updatedAt = Math.max(updatedAt, event.occurredAt());
+            }
+            if (!named && event.type().equals("inbox/accepted")) {
+                SessionInbox.Command command = event.payload(SessionInbox.Command.class);
+                if (!command.kind().equals("submit")) continue;
+                for (Msg message : command.messages()) {
                     if (message.getRole() != MsgRole.USER) continue;
-                    String text = message.getTextContent();
-                    if (text == null || text.isBlank()) continue;
-                    title = title(text); named = true; break;
+                    String value = message.getTextContent();
+                    if (value == null || value.isBlank()) continue;
+                    name = title(value); named = true; break;
                 }
-            } catch (RuntimeException ignored) {
-                // 不完整事实留待下一次同步。
             }
         }
-        save(new Summary(id, title, createdAt, updatedAt, head, named));
-    }
-
-    synchronized void submitted(String id, String text) {
-        Summary old = get(id);
-        long now = System.currentTimeMillis();
-        save(new Summary(id, old != null && old.named() ? old.title() : title(text),
-                old == null ? now : old.createdAt(), now, old == null ? 0 : old.seq(), true));
-    }
-
-    synchronized void retain(Set<String> loggedIds) {
-        for (ThreadCatalogBean row : service.listAll()) {
-            if (!loggedIds.contains(row.getId())) service.deleteById(row.getId());
+        if (head > 0) {
+            SessionEvent latest = log.readAfter(head - 1, 1).getFirst();
+            if (latest.occurredAt() > 0) {
+                if (old == null && inboxHead == 0) createdAt = Math.min(createdAt, latest.occurredAt());
+                updatedAt = Math.max(updatedAt, latest.occurredAt());
+            }
         }
+        // 兼容早期只有执行日志、没有 Inbox 的会话；正常新会话无需扫描执行前缀。
+        if (!named && head > 0) {
+            for (SessionEvent event : log.scan(0, head)) {
+                if (event.occurredAt() > 0) createdAt = Math.min(createdAt, event.occurredAt());
+                if (!event.type().equals("message/user") || event.data().get("message") == null) continue;
+                try {
+                    Msg message = JsonUtils.getJsonCodec().convertValue(event.data().get("message"), Msg.class);
+                    String value = message.getTextContent();
+                    if (value != null && !value.isBlank()) {
+                        name = title(value);
+                        named = true;
+                        break;
+                    }
+                } catch (RuntimeException ignored) {
+                    // 旧格式中无法解码的消息不影响其余会话的列表。
+                }
+            }
+        }
+        if (createdAt == Long.MAX_VALUE) createdAt = System.currentTimeMillis();
+        Summary value = new Summary(id, name, createdAt, Math.max(createdAt, updatedAt), head, named);
+        summaries.put(id, new Cached(value, inboxHead));
+        return value;
     }
 
     synchronized Page page(int requestedLimit, String cursor) {
         int limit = requestedLimit <= 0 ? 20 : Math.min(requestedLimit, 100);
         Position after = decode(cursor);
-        List<Summary> rows = service.listRecentAfter(limit + 1,
-                after == null ? null : after.updatedAt(), after == null ? null : after.id())
-                .stream().map(ThreadCatalog::summary).toList();
+        List<Summary> rows = ids.get().stream().map(id -> sync(id, logs.apply(id)))
+                .filter(java.util.Objects::nonNull)
+                .filter(value -> after == null || value.updatedAt() < after.updatedAt()
+                        || value.updatedAt() == after.updatedAt() && value.id().compareTo(after.id()) < 0)
+                .sorted(Comparator.comparingLong(Summary::updatedAt).reversed()
+                        .thenComparing(Summary::id, Comparator.reverseOrder()))
+                .limit(limit + 1L).toList();
         boolean more = rows.size() > limit;
         List<Summary> result = more ? rows.subList(0, limit) : rows;
         long expires = after == null ? System.currentTimeMillis() + 30 * 60_000L : after.expires();
@@ -178,19 +200,6 @@ public final class ThreadCatalog {
                 connection.rollback(); throw error;
             }
         } catch (SQLException error) { throw new IllegalStateException("无法保存会话展示快照", error); }
-    }
-
-    private void save(Summary value) {
-        ThreadCatalogBean row = new ThreadCatalogBean();
-        row.setId(value.id()); row.setTitle(value.title()); row.setCreatedAt(value.createdAt());
-        row.setUpdatedAt(value.updatedAt()); row.setSeq(value.seq()); row.setNamed(value.named());
-        if (service.findById(value.id()) == null) service.create(row);
-        else service.update(row);
-    }
-
-    private static Summary summary(ThreadCatalogBean row) {
-        return new Summary(row.getId(), row.getTitle(), row.getCreatedAt(), row.getUpdatedAt(),
-                row.getSeq(), Boolean.TRUE.equals(row.getNamed()));
     }
 
     public static String title(String text) {
