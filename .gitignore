@@ -1,0 +1,30 @@
+# Build & deps
+**/target/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+
+# IDE / local
+.idea/
+*.iml
+.vscode/
+*.log
+
+# Docs & notes (not part of this submission)
+docs/
+README.md
+.superpowers/
+ag-ui/docx/
+
+# Temp / scratch
+.tmp-as-harness/
+.tmp-as-src/
+frontend/test-results/
+frontend/playwright-report/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+**/*.local.xml
+**/*.local.properties
