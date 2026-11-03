@@ -1,6 +1,6 @@
-package com.beyondzy.demo.domain;
+package com.beyondzy.demo.domain.readmodel;
 
-/** 读模型水位与恢复检查点。 */
+/** 读模型水位与恢复检查点。对应表：rm_head。 */
 public class ReadModelHeadBean {
     private String generation;
     private Long revision;

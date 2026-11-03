@@ -1,7 +1,7 @@
 package com.beyondzy.demo.service;
 
-import com.beyondzy.demo.domain.ReadModelHeadBean;
-import com.beyondzy.demo.mapper.ReadModelMapper;
+import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
+import com.beyondzy.demo.mapper.readmodel.ReadModelMapper;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
