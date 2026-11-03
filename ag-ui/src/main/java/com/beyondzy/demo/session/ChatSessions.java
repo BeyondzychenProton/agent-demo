@@ -21,6 +21,8 @@ import com.beyondzy.demo.snapshot.ThreadViewAssembler;
 import com.beyondzy.demo.tools.DocSearchTools;
 import com.beyondzy.demo.tools.NoteTools;
 import com.beyondzy.demo.tools.OrderTools;
+import com.beyondzy.demo.service.display.DisplayIndexService;
+import com.beyondzy.demo.service.ReadModelPersistenceService;
 import java.nio.file.Path;
 import javax.sql.DataSource;
 import java.util.LinkedHashMap;
@@ -98,11 +100,12 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, "local-user", null);
+        this(workspace, model, null, "local-user", null, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
-            SessionLogStore sessionLogStore, String userId, DataSource dataSource) {
+            SessionLogStore sessionLogStore, String userId, DataSource dataSource,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
         if (sessionLogStore == null || dataSource == null)
             throw new IllegalArgumentException("ChatSessions 需要 MySQL 数据源和会话存储");
         modelName = model.getModelName();
@@ -141,12 +144,12 @@ public final class ChatSessions implements AutoCloseable {
                         .disableAtPathExpansion()
                         .maxIters(8)
                         .build();
-        catalog = new ThreadCatalog(this::list, this::log, dataSource);
-        displayViews = new DisplayViewStore(dataSource);
+        catalog = new ThreadCatalog(this::list, this::log, displayIndex);
+        displayViews = new DisplayViewStore(displayIndex);
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());
-        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, dataSource);
+        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, dataSource, readModelPersistence);
     }
 
     /**

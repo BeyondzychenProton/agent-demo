@@ -1,6 +1,6 @@
-package com.beyondzy.demo.domain;
+package com.beyondzy.demo.domain.display;
 
-/** 完整基础展示视图缓存记录。 */
+/** 完整基础展示视图缓存记录。对应表：display_view。 */
 public class DisplayViewBean {
     private Integer format;
     private Boolean hasInteractions;

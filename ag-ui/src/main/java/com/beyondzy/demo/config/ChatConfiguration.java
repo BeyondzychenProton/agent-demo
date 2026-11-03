@@ -2,6 +2,8 @@ package com.beyondzy.demo.config;
 
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
+import com.beyondzy.demo.service.display.DisplayIndexService;
+import com.beyondzy.demo.service.ReadModelPersistenceService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
@@ -24,6 +26,8 @@ public class ChatConfiguration {
     @Bean(destroyMethod = "close")
     ChatSessions sessions(
             MySqlSessionLogStore mySqlSessionLogStore,
+            DisplayIndexService displayIndex,
+            ReadModelPersistenceService readModelPersistence,
             DataSource dataSource,
             @Value("${chat.workspace}") String workspace,
             @Value("${chat.user-id:1}") String userId,
@@ -47,6 +51,6 @@ public class ChatConfiguration {
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, userId, dataSource);
+                mySqlSessionLogStore, userId, dataSource, displayIndex, readModelPersistence);
     }
 }

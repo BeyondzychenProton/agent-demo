@@ -1,20 +1,20 @@
-package com.beyondzy.demo.service;
+package com.beyondzy.demo.service.display.impl;
 
-import com.beyondzy.demo.domain.DisplayMessageBean;
-import com.beyondzy.demo.domain.DisplayTurnBean;
-import com.beyondzy.demo.domain.DisplayViewBean;
-import com.beyondzy.demo.mapper.DisplayMapper;
+import com.beyondzy.demo.domain.display.DisplayViewBean;
+import com.beyondzy.demo.mapper.display.DisplayMapper;
+import com.beyondzy.demo.service.display.DisplayIndexService;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 协调 display_* 读写，并保证消息、轮次与水位保持同一事务。 */
+/** DisplayIndexService 实现：委托 DisplayMapper，并保证快照写入同事务。 */
 @Service
-public class DisplayIndexService {
+public class DisplayIndexServiceImpl implements DisplayIndexService {
     private final DisplayMapper mapper;
 
-    public DisplayIndexService(DisplayMapper mapper) { this.mapper = mapper; }
+    public DisplayIndexServiceImpl(DisplayMapper mapper) { this.mapper = mapper; }
 
+    @Override
     @Transactional(readOnly = true)
     public Snapshot readSnapshot(String threadId, long expectedSeq, boolean previous) {
         Long savedSeq = mapper.findSnapshotSeq(threadId);
@@ -22,8 +22,10 @@ public class DisplayIndexService {
         return new Snapshot(savedSeq, mapper.findMessages(threadId), mapper.findTurns(threadId));
     }
 
+    @Override
     @Transactional
     public void saveSnapshot(String threadId, long seq, List<Message> messages, List<Turn> turns) {
+        // 同事务：删消息/轮次 → 重插 → 更新水位，避免半截快照对外可见。
         mapper.deleteMessages(threadId);
         mapper.deleteTurns(threadId);
         for (int i = 0; i < messages.size(); i++) {
@@ -37,15 +39,13 @@ public class DisplayIndexService {
         mapper.saveSnapshotSeq(threadId, seq);
     }
 
+    @Override
     @Transactional(readOnly = true)
     public DisplayViewBean findView(String threadId, long seq) { return mapper.findView(threadId, seq); }
 
+    @Override
     @Transactional
     public void saveView(String threadId, long seq, int format, boolean hasInteractions, String payload) {
         mapper.saveView(threadId, seq, format, hasInteractions, payload);
     }
-
-    public record Snapshot(long seq, List<DisplayMessageBean> messages, List<DisplayTurnBean> turns) {}
-    public record Message(String messageId, String role, String content) {}
-    public record Turn(String runId, String status) {}
 }

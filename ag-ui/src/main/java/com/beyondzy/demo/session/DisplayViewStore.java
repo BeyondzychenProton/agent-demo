@@ -1,10 +1,10 @@
 package com.beyondzy.demo.session;
 
 import com.beyondzy.demo.contract.ThreadView;
+import com.beyondzy.demo.domain.display.DisplayViewBean;
+import com.beyondzy.demo.service.display.DisplayIndexService;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.file.Path;
-import javax.sql.DataSource;
-import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,10 +13,10 @@ import java.util.Map;
 final class DisplayViewStore {
     private static final int FORMAT = 1;
     record Saved(long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {}
-    private final DataSource dataSource;
+    private final DisplayIndexService displayIndex;
 
-    DisplayViewStore(DataSource dataSource) {
-        this.dataSource = dataSource;
+    DisplayViewStore(DisplayIndexService displayIndex) {
+        this.displayIndex = displayIndex;
     }
 
     @Deprecated(forRemoval = true)
@@ -24,31 +24,18 @@ final class DisplayViewStore {
         throw new UnsupportedOperationException("旧文件型展示视图存储已移除，请注入 MySQL 数据源");
     }
 
-    private Connection open() throws SQLException {
-        return dataSource.getConnection();
-    }
-
     /** 水位和格式均匹配才返回；旧水位不能冒充当前页面。 */
     synchronized Saved read(String id, long seq) {
-        try (var connection = open(); var query = connection.prepareStatement(
-                "SELECT format,has_interactions,payload FROM display_view WHERE thread_id=? AND seq=?")) {
-            query.setString(1, id);
-            query.setLong(2, seq);
-            try (var rows = query.executeQuery()) {
-                if (!rows.next() || rows.getInt(1) != FORMAT) return null;
-                try {
-                    var view = decode(rows.getString(3));
-                    if (!id.equals(view.threadId()) || view.asOfSeq() != seq
-                            || !((id + ":" + seq).equals(view.cursor())) || view.activeRun() != null)
-                        return null;
-                    return new Saved(seq, rows.getInt(2) != 0, view);
-                } catch (RuntimeException invalid) {
-                    // 派生数据解码失败视为未命中，由现有读取链重新生成，不影响权威日志。
-                    return null;
-                }
-            }
-        } catch (SQLException error) {
-            throw new IllegalStateException("无法读取完整展示索引", error);
+        DisplayViewBean row = displayIndex.findView(id, seq);
+        if (row == null || row.getFormat() != FORMAT) return null;
+        try {
+            var view = decode(row.getPayload());
+            if (!id.equals(view.threadId()) || view.asOfSeq() != seq
+                    || !((id + ":" + seq).equals(view.cursor())) || view.activeRun() != null) return null;
+            return new Saved(seq, Boolean.TRUE.equals(row.getHasInteractions()), view);
+        } catch (RuntimeException invalid) {
+            // 派生数据解码失败视为未命中，由现有读取链重新生成，不影响权威日志。
+            return null;
         }
     }
 
@@ -61,23 +48,7 @@ final class DisplayViewStore {
                     && card.hitl() != null && card.hitl().canRespond())
                 throw new IllegalArgumentException("不能持久化审批操作权限");
         }
-        try (var connection = open(); var write = connection.prepareStatement("""
-                INSERT INTO display_view(thread_id,seq,format,has_interactions,payload) VALUES(?,?,?,?,?)
-                ON DUPLICATE KEY UPDATE
-                payload=IF(VALUES(seq)>=seq,VALUES(payload),payload),
-                has_interactions=IF(VALUES(seq)>=seq,VALUES(has_interactions),has_interactions),
-                format=IF(VALUES(seq)>=seq,VALUES(format),format),
-                seq=GREATEST(seq,VALUES(seq))
-                """)) {
-            write.setString(1, id);
-            write.setLong(2, seq);
-            write.setInt(3, FORMAT);
-            write.setBoolean(4, hasInteractions);
-            write.setString(5, JsonUtils.getJsonCodec().toJson(view));
-            write.executeUpdate();
-        } catch (SQLException error) {
-            throw new IllegalStateException("无法保存完整展示索引", error);
-        }
+        displayIndex.saveView(id, seq, FORMAT, hasInteractions, JsonUtils.getJsonCodec().toJson(view));
     }
 
     /** 按公开 kind 白名单恢复具体类型，避免给序列化器开放任意 Java 类型。 */

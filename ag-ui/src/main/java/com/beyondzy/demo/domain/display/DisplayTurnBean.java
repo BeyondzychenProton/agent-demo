@@ -1,6 +1,6 @@
-package com.beyondzy.demo.domain;
+package com.beyondzy.demo.domain.display;
 
-/** 已完成会话展示快照中的运行轮次记录。 */
+/** 已完成会话展示快照中的运行轮次记录。对应表：display_turn。 */
 public class DisplayTurnBean {
     private String runId;
     private String status;

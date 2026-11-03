@@ -6,11 +6,8 @@ import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.util.JsonUtils;
+import com.beyondzy.demo.service.display.DisplayIndexService;
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -20,7 +17,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.List;
-import javax.sql.DataSource;
 
 /** 从 SessionLog 和 Inbox 派生会话目录；已完成会话的展示快照仍保存在 MySQL。 */
 public final class ThreadCatalog {
@@ -36,12 +32,12 @@ public final class ThreadCatalog {
     private final Supplier<List<String>> ids;
     private final Function<String, SessionLog> logs;
     private final Map<String, Cached> summaries = new HashMap<>();
-    private final DataSource dataSource;
+    private final DisplayIndexService displayIndex;
 
-    ThreadCatalog(Supplier<List<String>> ids, Function<String, SessionLog> logs, DataSource dataSource) {
+    ThreadCatalog(Supplier<List<String>> ids, Function<String, SessionLog> logs, DisplayIndexService displayIndex) {
         this.ids = ids;
         this.logs = logs;
-        this.dataSource = dataSource;
+        this.displayIndex = displayIndex;
     }
 
     synchronized Summary get(String id) {
@@ -132,74 +128,20 @@ public final class ThreadCatalog {
     synchronized DisplaySnapshot previousDisplay(String id, long seq) { return readDisplay(id, seq, true); }
 
     private DisplaySnapshot readDisplay(String id, long seq, boolean previous) {
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                long savedSeq;
-                try (PreparedStatement query = connection.prepareStatement("SELECT seq FROM display_head WHERE thread_id=?")) {
-                    query.setString(1, id);
-                    try (ResultSet rows = query.executeQuery()) {
-                        if (!rows.next()) return null;
-                        savedSeq = rows.getLong(1);
-                    }
-                }
-                if (previous ? savedSeq >= seq : savedSeq != seq) return null;
-                List<DisplayMessage> messages = new ArrayList<>();
-                try (PreparedStatement query = connection.prepareStatement("SELECT message_id,role,content FROM display_message WHERE thread_id=? ORDER BY ordinal")) {
-                    query.setString(1, id);
-                    try (ResultSet rows = query.executeQuery()) {
-                        while (rows.next()) messages.add(new DisplayMessage(rows.getString(1), rows.getString(2), rows.getString(3)));
-                    }
-                }
-                List<DisplayTurn> turns = new ArrayList<>();
-                try (PreparedStatement query = connection.prepareStatement("SELECT run_id,status FROM display_turn WHERE thread_id=? ORDER BY ordinal")) {
-                    query.setString(1, id);
-                    try (ResultSet rows = query.executeQuery()) {
-                        while (rows.next()) turns.add(new DisplayTurn(rows.getString(1), rows.getString(2)));
-                    }
-                }
-                connection.commit();
-                return new DisplaySnapshot(savedSeq, List.copyOf(messages), List.copyOf(turns));
-            } catch (SQLException error) {
-                connection.rollback(); throw error;
-            }
-        } catch (SQLException error) { throw new IllegalStateException("无法读取会话展示快照", error); }
+        var snapshot = displayIndex.readSnapshot(id, seq, previous);
+        if (snapshot == null) return null;
+        List<DisplayMessage> messages = snapshot.messages().stream()
+                .map(item -> new DisplayMessage(item.getMessageId(), item.getRole(), item.getContent())).toList();
+        List<DisplayTurn> turns = snapshot.turns().stream()
+                .map(item -> new DisplayTurn(item.getRunId(), item.getStatus())).toList();
+        return new DisplaySnapshot(snapshot.seq(), messages, turns);
     }
 
     /** 消息、轮次和水位在同一事务中更新。 */
     synchronized void saveDisplay(String id, DisplaySnapshot value) {
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                for (String table : List.of("display_message", "display_turn")) {
-                    try (PreparedStatement delete = connection.prepareStatement("DELETE FROM " + table + " WHERE thread_id=?")) {
-                        delete.setString(1, id); delete.executeUpdate();
-                    }
-                }
-                try (PreparedStatement insert = connection.prepareStatement("INSERT INTO display_message(thread_id,ordinal,message_id,role,content) VALUES(?,?,?,?,?)")) {
-                    int ordinal = 0;
-                    for (DisplayMessage message : value.messages()) {
-                        insert.setString(1, id); insert.setInt(2, ordinal++); insert.setString(3, message.id());
-                        insert.setString(4, message.role()); insert.setString(5, message.text()); insert.addBatch();
-                    }
-                    insert.executeBatch();
-                }
-                try (PreparedStatement insert = connection.prepareStatement("INSERT INTO display_turn(thread_id,ordinal,run_id,status) VALUES(?,?,?,?)")) {
-                    int ordinal = 0;
-                    for (DisplayTurn turn : value.turns()) {
-                        insert.setString(1, id); insert.setInt(2, ordinal++); insert.setString(3, turn.runId());
-                        insert.setString(4, turn.status()); insert.addBatch();
-                    }
-                    insert.executeBatch();
-                }
-                try (PreparedStatement head = connection.prepareStatement("INSERT INTO display_head(thread_id,seq) VALUES(?,?) ON DUPLICATE KEY UPDATE seq=VALUES(seq)")) {
-                    head.setString(1, id); head.setLong(2, value.seq()); head.executeUpdate();
-                }
-                connection.commit();
-            } catch (SQLException error) {
-                connection.rollback(); throw error;
-            }
-        } catch (SQLException error) { throw new IllegalStateException("无法保存会话展示快照", error); }
+        displayIndex.saveSnapshot(id, value.seq(),
+                value.messages().stream().map(item -> new DisplayIndexService.Message(item.id(), item.role(), item.text())).toList(),
+                value.turns().stream().map(item -> new DisplayIndexService.Turn(item.runId(), item.status())).toList());
     }
 
     public static String title(String text) {

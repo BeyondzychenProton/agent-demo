@@ -1,6 +1,6 @@
-package com.beyondzy.demo.domain;
+package com.beyondzy.demo.domain.display;
 
-/** 已完成会话展示快照中的消息记录。 */
+/** 已完成会话展示快照中的消息记录。对应表：display_message。 */
 public class DisplayMessageBean {
     private String messageId;
     private String role;
