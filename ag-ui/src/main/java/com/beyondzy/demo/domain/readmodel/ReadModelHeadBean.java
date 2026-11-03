@@ -1,6 +1,9 @@
 package com.beyondzy.demo.domain.readmodel;
 
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /** 读模型水位与恢复检查点。对应表：rm_head。 */
+@TableName("rm_head")
 public class ReadModelHeadBean {
     private String generation;
     private Long revision;

@@ -1,6 +1,9 @@
 package com.beyondzy.demo.domain.readmodel;
 
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /** 清理候选的过期条目版本。对应表：rm_item（已关闭且超出 TTL）。 */
+@TableName("rm_item")
 public class ReadModelStaleItemBean {
     private String thread;
     private String id;

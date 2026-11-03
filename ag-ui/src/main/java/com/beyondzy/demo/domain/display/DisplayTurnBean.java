@@ -1,6 +1,9 @@
 package com.beyondzy.demo.domain.display;
 
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /** 已完成会话展示快照中的运行轮次记录。对应表：display_turn。 */
+@TableName("display_turn")
 public class DisplayTurnBean {
     private String runId;
     private String status;

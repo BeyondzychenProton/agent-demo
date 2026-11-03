@@ -1,6 +1,9 @@
 package com.beyondzy.demo.domain.readmodel;
 
-/** 内容分块查询结果：块正文与编码。对应表：rm_content JOIN rm_block。 */
+/**
+ * 内容分块查询投影（非单表行模型）：body 来自 rm_block，encoding 来自 rm_content。
+ * 因跨表 JOIN，不加 @TableName。
+ */
 public class ReadModelContentBlockBean {
     private String body;
     private String encoding;

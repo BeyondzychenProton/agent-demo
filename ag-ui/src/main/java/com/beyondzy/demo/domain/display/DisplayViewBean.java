@@ -1,6 +1,9 @@
 package com.beyondzy.demo.domain.display;
 
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /** 完整基础展示视图缓存记录。对应表：display_view。 */
+@TableName("display_view")
 public class DisplayViewBean {
     private Integer format;
     private Boolean hasInteractions;
