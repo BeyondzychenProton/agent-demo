@@ -1,16 +1,28 @@
 package com.beyondzy.demo.readmodel;
 
+import com.beyondzy.demo.domain.readmodel.ReadModelChangeRowBean;
+import com.beyondzy.demo.domain.readmodel.ReadModelContentBlockBean;
+import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
+import com.beyondzy.demo.service.readmodel.CommitBatch;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.snapshot.ChatItems;
-import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.security.MessageDigest;
-import java.sql.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import javax.sql.DataSource;
 
-/** 单进程展示读库：历史页、内容块和续接变更使用同一事务水位。 */
+/** 展示读模型编排：截断、指纹、游标与 HITL 判定；SQL 与事务委托 PersistenceService。 */
 public final class ReadModelStore implements AutoCloseable {
     public static final long SNAPSHOT_TTL = 30 * 60_000L;
     public static final long CHANGE_TTL = 24 * 60 * 60_000L;
@@ -25,92 +37,58 @@ public final class ReadModelStore implements AutoCloseable {
                        long projectionUpdatedAt) {}
     public record Content(List<String> blocks, String nextCursor, String encoding) {}
     private record Cursor(String thread, String generation, long revision, long before, long expires) {}
-    private final Connection db;
+    private record PreviewResult(ViewItem item, List<CommitBatch.BlockWrite> blocks) {}
+
+    private final ReadModelPersistenceService persistence;
+
+    public ReadModelStore(ReadModelPersistenceService persistence) {
+        this.persistence = Objects.requireNonNull(persistence, "读模型持久化服务不能为空");
+    }
+
+    @Deprecated(forRemoval = true)
     public ReadModelStore(DataSource dataSource) {
-        try {
-            db = dataSource.getConnection();
-        } catch (SQLException error) { throw new IllegalStateException("无法连接 MySQL 展示读库", error); }
+        throw new UnsupportedOperationException("请注入 ReadModelPersistenceService，不再直接使用 DataSource");
     }
 
     @Deprecated(forRemoval = true)
     public ReadModelStore(Path workspace) {
-        throw new UnsupportedOperationException("旧文件型读模型存储已移除，请注入 MySQL 数据源");
+        throw new UnsupportedOperationException("旧文件型读模型存储已移除，请注入 ReadModelPersistenceService");
     }
 
     public synchronized State state(String thread) {
-        try (var query = db.prepareStatement("SELECT * FROM rm_head WHERE thread=?")) {
-            query.setString(1, thread);
-            try (var rows = query.executeQuery()) {
-                return rows.next() ? new State(rows.getString("generation"), rows.getLong("revision"),
-                        rows.getLong("exec_seq"), rows.getLong("inbox_seq"), rows.getLong("updated_at"),
-                        rows.getString("lease_tag"), rows.getString("checkpoint"), rows.getString("control")) : null;
-            }
-        } catch (SQLException error) { throw sql(error); }
+        ReadModelHeadBean row = persistence.state(thread);
+        return row == null ? null : new State(row.getGeneration(), row.getRevision(), row.getExecSeq(),
+                row.getInboxSeq(), row.getUpdatedAt(), row.getLeaseTag(), row.getCheckpoint(), row.getControl());
     }
 
     /** 仅清理单个会话的过期派生格式，权威 SessionLog 与 Inbox 完全不受影响。 */
     public synchronized void invalidate(String thread) {
-        try {
-            db.setAutoCommit(false);
-            for (String table : List.of("rm_content", "rm_change", "rm_pending", "rm_item", "rm_raw", "rm_head")) {
-                try (var delete = db.prepareStatement("DELETE FROM " + table + " WHERE thread=?")) {
-                    delete.setString(1, thread); delete.executeUpdate();
-                }
-            }
-            db.commit();
-        } catch (SQLException error) {
-            try { db.rollback(); } catch (SQLException rollback) { error.addSuppressed(rollback); }
-            throw sql(error);
-        } finally {
-            try { db.setAutoCommit(true); } catch (SQLException error) { throw sql(error); }
-        }
+        persistence.invalidate(thread);
     }
 
     public synchronized ChatItems.Item raw(String thread, String id) {
-        try (var query = db.prepareStatement("SELECT payload FROM rm_raw WHERE thread=? AND id=?")) {
-            query.setString(1, thread); query.setString(2, id);
-            try (var rows = query.executeQuery()) {
-                return rows.next() ? decode(rows.getString(1), ChatItems.Item.class) : null;
-            }
-        } catch (SQLException error) { throw sql(error); }
+        String payload = persistence.raw(thread, id);
+        return payload == null ? null : decode(payload, ChatItems.Item.class);
     }
 
     public synchronized Long order(String thread, String id) {
-        try (var query = db.prepareStatement("SELECT order_key FROM rm_item WHERE thread=? AND id=? AND until_revision IS NULL")) {
-            query.setString(1, thread); query.setString(2, id);
-            try (var rows = query.executeQuery()) { return rows.next() ? rows.getLong(1) : null; }
-        } catch (SQLException error) { throw sql(error); }
+        return persistence.order(thread, id);
     }
 
     public synchronized long maxOrder(String thread) {
-        try (var query = db.prepareStatement("SELECT COALESCE(MAX(order_key),0) FROM rm_item WHERE thread=?")) {
-            query.setString(1, thread);
-            try (var rows = query.executeQuery()) { return rows.next() ? rows.getLong(1) : 0; }
-        } catch (SQLException error) { throw sql(error); }
+        return persistence.maxOrder(thread);
     }
 
     public synchronized List<ViewItem> pending(String thread) { return pending(thread, 0, 20); }
 
     /** 未解决审批独立于历史窗口，较早的请求不会因为只加载尾页而消失。 */
     public synchronized List<ViewItem> pending(String thread, long after, int limit) {
-        try (var query = db.prepareStatement("""
-                SELECT i.payload FROM rm_pending p JOIN rm_item i ON p.thread=i.thread AND p.id=i.id
-                WHERE p.thread=? AND i.until_revision IS NULL AND p.order_key>? ORDER BY p.order_key LIMIT ?
-                """)) {
-            query.setString(1, thread); query.setLong(2, after); query.setInt(3, Math.max(1, Math.min(limit, 50)));
-            var items = new ArrayList<ViewItem>();
-            try (var rows = query.executeQuery()) { while (rows.next()) items.add(decode(rows.getString(1), ViewItem.class)); }
-            return items;
-        } catch (SQLException error) { throw sql(error); }
+        return persistence.pending(thread, after, limit).stream()
+                .map(payload -> decode(payload, ViewItem.class)).toList();
     }
 
     public synchronized int pendingCount(String thread) {
-        try (var query = db.prepareStatement("""
-                SELECT COUNT(*) FROM rm_pending WHERE thread=?
-                """)) {
-            query.setString(1, thread);
-            try (var rows = query.executeQuery()) { return rows.next() ? rows.getInt(1) : 0; }
-        } catch (SQLException error) { throw sql(error); }
+        return persistence.pendingCount(thread);
     }
 
     /** 原始聚合项、页面版本、变更记录和双水位同时提交，不发布半批状态。 */
@@ -122,82 +100,58 @@ public final class ReadModelStore implements AutoCloseable {
         String generation = previous == null ? UUID.randomUUID().toString() : previous.generation();
         long now = System.currentTimeMillis();
         try {
-            db.setAutoCommit(false);
+            List<CommitBatch.RawWrite> raws = new ArrayList<>();
             for (var item : rawItems) {
-                try (var insert = db.prepareStatement("INSERT INTO rm_raw VALUES(?,?,?) ON DUPLICATE KEY UPDATE payload=VALUES(payload)")) {
-                    insert.setString(1, thread); insert.setString(2, item.id()); insert.setString(3, json(item)); insert.executeUpdate();
-                }
+                raws.add(new CommitBatch.RawWrite(item.id(), json(item)));
             }
+            List<CommitBatch.ItemWrite> items = new ArrayList<>();
             for (var entry : views.entrySet()) {
                 String id = entry.getKey();
-                var preview = preview(thread, id, orders.get(id), revision + 1, entry.getValue(), false);
-                String fingerprint = json(new ViewItem(id, preview.orderKey(), 0, preview.item(), preview.details()));
+                long orderKey = orders.get(id);
+                var dryRun = preview(id, orderKey, revision + 1, entry.getValue(), false);
+                String fingerprint = json(new ViewItem(id, dryRun.item().orderKey(), 0, dryRun.item().item(), dryRun.item().details()));
                 String old = currentFingerprint(thread, id);
                 if (fingerprint.equals(old)) {
                     // 内容引用大小相同时仍可能改变；完整聚合项由调用方保证只把真正变动项送入。
                     // 对存在分块的项不能仅用预览判断，必须产生新版本。
-                    if (preview.details().isEmpty()) continue;
+                    if (dryRun.item().details().isEmpty()) continue;
                 }
                 revision++;
-                var item = preview(thread, id, orders.get(id), revision, entry.getValue(), true);
-                try (var close = db.prepareStatement("UPDATE rm_item SET until_revision=? WHERE thread=? AND id=? AND until_revision IS NULL")) {
-                    close.setLong(1, revision); close.setString(2, thread); close.setString(3, id); close.executeUpdate();
-                }
-                try (var insert = db.prepareStatement("INSERT INTO rm_item VALUES(?,?,?,NULL,?,?,?)")) {
-                    insert.setString(1, thread); insert.setString(2, id); insert.setLong(3, revision);
-                    insert.setLong(4, item.orderKey()); insert.setString(5, json(item)); insert.setLong(6, now); insert.executeUpdate();
-                }
-                try (var insert = db.prepareStatement("INSERT INTO rm_change VALUES(?,?,?,?)")) {
-                    insert.setString(1, thread); insert.setLong(2, revision); insert.setString(3, id); insert.setLong(4, now); insert.executeUpdate();
-                }
-                try (var delete = db.prepareStatement("DELETE FROM rm_pending WHERE thread=? AND id=?")) {
-                    delete.setString(1, thread); delete.setString(2, id); delete.executeUpdate();
-                }
-                if (item.item().get("hitl") instanceof Map<?, ?> h
+                var written = preview(id, orderKey, revision, entry.getValue(), true);
+                Long pendingOrderKey = null;
+                if (written.item().item().get("hitl") instanceof Map<?, ?> h
                         && Set.of("pending", "processing", "reconciling").contains(h.get("interactionStatus"))) {
-                    try (var insert = db.prepareStatement("INSERT INTO rm_pending VALUES(?,?,?)")) {
-                        insert.setString(1, thread); insert.setString(2, id); insert.setLong(3, item.orderKey()); insert.executeUpdate();
-                    }
+                    pendingOrderKey = written.item().orderKey();
                 }
+                items.add(new CommitBatch.ItemWrite(
+                        id, revision, written.item().orderKey(), json(written.item()),
+                        pendingOrderKey, written.blocks()));
             }
-            try (var head = db.prepareStatement("""
-                    INSERT INTO rm_head VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE
-                    revision=VALUES(revision),exec_seq=VALUES(exec_seq),inbox_seq=VALUES(inbox_seq),
-                    updated_at=VALUES(updated_at),lease_tag=VALUES(lease_tag),checkpoint=VALUES(checkpoint),control=VALUES(control)
-                    """)) {
-                head.setString(1, thread); head.setString(2, generation); head.setLong(3, revision);
-                head.setLong(4, execSeq); head.setLong(5, inboxSeq); head.setLong(6, now);
-                head.setString(7, leaseTag); head.setString(8, checkpoint); head.setString(9, control); head.executeUpdate();
-            }
-            db.commit();
-        } catch (SQLException | RuntimeException error) {
-            try { db.rollback(); } catch (SQLException rollback) { error.addSuppressed(rollback); }
+            var head = new CommitBatch.HeadWrite(thread, generation, revision, execSeq, inboxSeq, now,
+                    leaseTag, checkpoint, control);
+            persistence.commit(new CommitBatch(List.copyOf(raws), List.copyOf(items), head));
+        } catch (RuntimeException error) {
             throw new IllegalStateException("提交展示投影失败", error);
-        } finally {
-            try { db.setAutoCommit(true); } catch (SQLException error) { throw sql(error); }
         }
     }
 
-    private String currentFingerprint(String thread, String id) throws SQLException {
-        try (var query = db.prepareStatement("SELECT payload FROM rm_item WHERE thread=? AND id=? AND until_revision IS NULL")) {
-            query.setString(1, thread); query.setString(2, id);
-            try (var rows = query.executeQuery()) {
-                if (!rows.next()) return null;
-                var old = decode(rows.getString(1), ViewItem.class);
-                return json(new ViewItem(old.itemId(), old.orderKey(), 0, old.item(), old.details()));
-            }
-        }
+    private String currentFingerprint(String thread, String id) {
+        String payload = persistence.findCurrentPayload(thread, id);
+        if (payload == null) return null;
+        var old = decode(payload, ViewItem.class);
+        return json(new ViewItem(old.itemId(), old.orderKey(), 0, old.item(), old.details()));
     }
 
-    /** 截断发生在数据库写入时；读页不会先加载整条大消息再截取。 */
+    /** 截断发生在写入指令组装时；读页不会先加载整条大消息再截取。 */
     @SuppressWarnings("unchecked")
-    private ViewItem preview(String thread, String id, long order, long version, Object value, boolean write) throws SQLException {
+    private PreviewResult preview(String id, long order, long version, Object value, boolean write) {
         Map<String, Object> fields = new LinkedHashMap<>(decode(json(value), Map.class));
         for (String label : List.of("displayTitle", "name")) {
             if (fields.get(label) instanceof String text && text.codePointCount(0, text.length()) > 256)
                 fields.put(label, prefix(text, 256) + "…");
         }
         Map<String, Detail> details = new LinkedHashMap<>();
+        List<CommitBatch.BlockWrite> blocks = new ArrayList<>();
         for (String field : List.of("text", "arguments", "result", "error", "progress", "hitl")) {
             Object content = fields.get(field);
             if (content == null) continue;
@@ -212,19 +166,13 @@ public final class ReadModelStore implements AutoCloseable {
                 small.put("payload", "参数较长，请展开查看"); fields.put(field, small);
             } else fields.put(field, prefix(text, 1024) + "…");
             if (!write) continue;
-            List<String> blocks = blocks(text);
-            for (int index = 0; index < blocks.size(); index++) {
-                String block = blocks.get(index), hash = hash(block);
-                try (var insert = db.prepareStatement("INSERT IGNORE INTO rm_block VALUES(?,?)")) {
-                    insert.setString(1, hash); insert.setString(2, block); insert.executeUpdate();
-                }
-                try (var insert = db.prepareStatement("INSERT INTO rm_content VALUES(?,?,?,?,?,?,?)")) {
-                    insert.setString(1, thread); insert.setString(2, id); insert.setLong(3, version);
-                    insert.setString(4, field); insert.setInt(5, index); insert.setString(6, hash); insert.setString(7, encoding); insert.executeUpdate();
-                }
+            List<String> parts = blocks(text);
+            for (int index = 0; index < parts.size(); index++) {
+                String block = parts.get(index);
+                blocks.add(new CommitBatch.BlockWrite(field, index, hash(block), block, encoding));
             }
         }
-        return new ViewItem(id, order, version, fields, details);
+        return new PreviewResult(new ViewItem(id, order, version, fields, details), List.copyOf(blocks));
     }
 
     public synchronized Page page(String thread, int requested, String before) {
@@ -237,26 +185,15 @@ public final class ReadModelStore implements AutoCloseable {
         List<ViewItem> items = new ArrayList<>();
         int bytes = 2048;
         boolean more = false;
-        String pageSql = cursor.revision() == state.revision() ? """
-                SELECT payload FROM rm_item WHERE thread=? AND revision<=? AND until_revision IS NULL
-                AND ? >= 0 AND order_key<? ORDER BY order_key DESC LIMIT ?
-                """ : """
-                SELECT payload FROM rm_item WHERE thread=? AND revision<=?
-                AND (until_revision IS NULL OR until_revision>?) AND order_key<? ORDER BY order_key DESC LIMIT ?
-                """;
-        try (var query = db.prepareStatement(pageSql)) {
-            query.setString(1, thread); query.setLong(2, cursor.revision()); query.setLong(3, cursor.revision());
-            query.setLong(4, cursor.before()); query.setInt(5, limit + 1);
-            try (var rows = query.executeQuery()) {
-                while (rows.next()) {
-                    String payload = rows.getString(1);
-                    int nextSize = payload.getBytes(StandardCharsets.UTF_8).length;
-                    // 给状态回执及待答摘要预留预算，完整HTTP响应继续保持有界。
-                    if (items.size() == limit || bytes + nextSize > 192 * 1024) { more = true; break; }
-                    items.add(decode(payload, ViewItem.class)); bytes += nextSize;
-                }
-            }
-        } catch (SQLException error) { throw sql(error); }
+        boolean currentRevision = cursor.revision() == state.revision();
+        List<String> payloads = persistence.findPagePayloads(
+                thread, cursor.revision(), cursor.before(), limit + 1, currentRevision);
+        for (String payload : payloads) {
+            int nextSize = payload.getBytes(StandardCharsets.UTF_8).length;
+            // 给状态回执及待答摘要预留预算，完整HTTP响应继续保持有界。
+            if (items.size() == limit || bytes + nextSize > 192 * 1024) { more = true; break; }
+            items.add(decode(payload, ViewItem.class)); bytes += nextSize;
+        }
         String next = more ? token(new Cursor(thread, cursor.generation(), cursor.revision(),
                 items.get(items.size() - 1).orderKey(), cursor.expires())) : null;
         Collections.reverse(items);
@@ -270,83 +207,35 @@ public final class ReadModelStore implements AutoCloseable {
         if (state == null) return List.of();
         Cursor cursor = parse(after, thread, state);
         if (cursor.before() != 0) throw new IllegalArgumentException("历史页游标不能作为事件游标");
-        try (var query = db.prepareStatement("SELECT MIN(revision) FROM rm_change WHERE thread=?")) {
-            query.setString(1, thread);
-            try (var rows = query.executeQuery()) {
-                if (rows.next()) {
-                    long minimum = rows.getLong(1);
-                    if (cursor.revision() < state.revision() && (minimum == 0 || cursor.revision() < minimum - 1))
-                        throw new Gone("补读记录已过期，请重新加载");
-                }
-            }
-        } catch (SQLException error) { throw sql(error); }
+        long minimum = persistence.findMinChangeRevision(thread);
+        if (cursor.revision() < state.revision() && (minimum == 0 || cursor.revision() < minimum - 1))
+            throw new Gone("补读记录已过期，请重新加载");
         List<Change> result = new ArrayList<>();
-        try (var query = db.prepareStatement("""
-                SELECT c.revision,i.payload FROM rm_change c JOIN rm_item i
-                ON c.thread=i.thread AND c.item_id=i.id AND c.revision=i.revision
-                WHERE c.thread=? AND c.revision>? ORDER BY c.revision LIMIT 50
-                """)) {
-            query.setString(1, thread); query.setLong(2, cursor.revision());
-            try (var rows = query.executeQuery()) {
-                while (rows.next()) {
-                    long revision = rows.getLong(1);
-                    result.add(new Change(eventCursor(thread, state.generation(), revision), revision,
-                            decode(rows.getString(2), ViewItem.class)));
-                }
-            }
-        } catch (SQLException error) { throw sql(error); }
+        for (ReadModelChangeRowBean row : persistence.findChangesAfter(thread, cursor.revision(), 50)) {
+            long revision = row.getRevision();
+            result.add(new Change(eventCursor(thread, state.generation(), revision), revision,
+                    decode(row.getPayload(), ViewItem.class)));
+        }
         return result;
     }
 
     public synchronized Content content(String thread, String id, long version, String field, int after) {
         if (version < 1 || after < 0) throw new IllegalArgumentException("非法内容位置");
         var blocks = new ArrayList<String>(); String encoding = "text"; boolean more = false; int bytes = 256;
-        try (var query = db.prepareStatement("""
-                SELECT b.body,c.encoding FROM rm_content c JOIN rm_block b ON c.hash=b.hash
-                WHERE c.thread=? AND c.id=? AND c.revision=? AND c.field=? AND c.block_no>=?
-                ORDER BY c.block_no LIMIT 17
-                """)) {
-            query.setString(1, thread); query.setString(2, id); query.setLong(3, version);
-            query.setString(4, field); query.setInt(5, after);
-            try (var rows = query.executeQuery()) {
-                while (rows.next()) {
-                    String body = rows.getString(1);
-                    int size = json(body).getBytes(StandardCharsets.UTF_8).length;
-                    if (blocks.size() == 16 || bytes + size > 120 * 1024) { more = true; break; }
-                    blocks.add(body); bytes += size; encoding = rows.getString(2);
-                }
-            }
-        } catch (SQLException error) { throw sql(error); }
+        for (ReadModelContentBlockBean row : persistence.findContentBlocks(thread, id, version, field, after, 17)) {
+            String body = row.getBody();
+            int size = json(body).getBytes(StandardCharsets.UTF_8).length;
+            if (blocks.size() == 16 || bytes + size > 120 * 1024) { more = true; break; }
+            blocks.add(body); bytes += size; encoding = row.getEncoding();
+        }
         if (blocks.isEmpty()) throw new Gone("内容版本不存在或已过期");
         return new Content(List.copyOf(blocks), more ? Integer.toString(after + blocks.size()) : null, encoding);
     }
 
     /** 清理仅影响过期派生版本；当前版本以及补读窗口内的版本一直保留。 */
     public synchronized void cleanup() {
-        try (var delete = db.prepareStatement("DELETE FROM rm_change WHERE created_at<?")) {
-            delete.setLong(1, System.currentTimeMillis() - CHANGE_TTL); delete.executeUpdate();
-            try (var statement = db.createStatement()) {
-                String stale = "SELECT old.thread,old.id,old.revision FROM rm_item old WHERE old.until_revision IS NOT NULL AND old.created_at<"
-                        + (System.currentTimeMillis() - CHANGE_TTL)
-                        + " AND NOT EXISTS(SELECT 1 FROM rm_change c WHERE c.thread=old.thread AND c.revision=old.revision)"
-                        + " AND NOT EXISTS(SELECT 1 FROM rm_item newer WHERE newer.thread=old.thread AND newer.id=old.id AND newer.revision>=old.until_revision AND newer.created_at>="
-                        + (System.currentTimeMillis() - SNAPSHOT_TTL) + ") LIMIT 1000";
-                record OldItem(String thread, String id, long revision) {}
-                var obsolete = new ArrayList<OldItem>();
-                try (var rows = statement.executeQuery(stale)) {
-                    while (rows.next()) obsolete.add(new OldItem(rows.getString(1), rows.getString(2), rows.getLong(3)));
-                }
-                try (var remove = db.prepareStatement("DELETE FROM rm_item WHERE thread=? AND id=? AND revision=?")) {
-                    for (var item : obsolete) {
-                        remove.setString(1, item.thread()); remove.setString(2, item.id());
-                        remove.setLong(3, item.revision()); remove.addBatch();
-                    }
-                    if (!obsolete.isEmpty()) remove.executeBatch();
-                }
-                statement.executeUpdate("DELETE FROM rm_content WHERE NOT EXISTS(SELECT 1 FROM rm_item i WHERE i.thread=rm_content.thread AND i.id=rm_content.id AND i.revision=rm_content.revision)");
-                statement.executeUpdate("DELETE FROM rm_block WHERE NOT EXISTS(SELECT 1 FROM rm_content c WHERE c.hash=rm_block.hash)");
-            }
-        } catch (SQLException error) { throw sql(error); }
+        long now = System.currentTimeMillis();
+        persistence.cleanup(now - CHANGE_TTL, now - SNAPSHOT_TTL);
     }
 
     public static String eventCursor(String thread, String generation, long revision) {
@@ -371,7 +260,6 @@ public final class ReadModelStore implements AutoCloseable {
     }
     public static String json(Object value) { return JsonUtils.getJsonCodec().toJson(value); }
     public static <T> T decode(String text, Class<T> type) { return JsonUtils.getJsonCodec().fromJson(text, type); }
-    private static IllegalStateException sql(SQLException error) { return new IllegalStateException("展示读库访问失败", error); }
     private static String hash(String text) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8))); }
         catch (Exception error) { throw new IllegalStateException(error); }
@@ -389,5 +277,9 @@ public final class ReadModelStore implements AutoCloseable {
     private static String prefix(String text, int codePoints) {
         return text.substring(0, text.offsetByCodePoints(0, Math.min(codePoints, text.codePointCount(0, text.length()))));
     }
-    @Override public synchronized void close() { try { db.close(); } catch (SQLException error) { throw sql(error); } }
+
+    @Override
+    public synchronized void close() {
+        // 无本地 JDBC 连接可关闭；持久化由 Spring 管理的 PersistenceService 负责。
+    }
 }

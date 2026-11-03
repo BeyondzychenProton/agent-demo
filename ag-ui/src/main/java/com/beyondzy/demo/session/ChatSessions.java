@@ -24,7 +24,6 @@ import com.beyondzy.demo.tools.OrderTools;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -100,14 +99,14 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, "local-user", null, null, null);
+        this(workspace, model, null, "local-user", null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
-            SessionLogStore sessionLogStore, String userId, DataSource dataSource,
+            SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
-        if (sessionLogStore == null || dataSource == null)
-            throw new IllegalArgumentException("ChatSessions 需要 MySQL 数据源和会话存储");
+        if (sessionLogStore == null || readModelPersistence == null)
+            throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
         this.userId = userId;
         store = sessionLogStore;
@@ -149,7 +148,7 @@ public final class ChatSessions implements AutoCloseable {
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());
-        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, dataSource, readModelPersistence);
+        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, readModelPersistence);
     }
 
     /**

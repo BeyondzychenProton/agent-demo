@@ -9,7 +9,6 @@ import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,7 +27,6 @@ public class ChatConfiguration {
             MySqlSessionLogStore mySqlSessionLogStore,
             DisplayIndexService displayIndex,
             ReadModelPersistenceService readModelPersistence,
-            DataSource dataSource,
             @Value("${chat.workspace}") String workspace,
             @Value("${chat.user-id:1}") String userId,
             @Value("${chat.base-url}") String baseUrl,
@@ -51,6 +49,6 @@ public class ChatConfiguration {
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, userId, dataSource, displayIndex, readModelPersistence);
+                mySqlSessionLogStore, userId, displayIndex, readModelPersistence);
     }
 }

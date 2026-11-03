@@ -2,6 +2,7 @@ package com.beyondzy.demo.readmodel;
 
 import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.hitl.HitlService;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.snapshot.ChatItems;
 import com.beyondzy.demo.snapshot.ThreadViewAssembler;
@@ -9,9 +10,9 @@ import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.util.*;
 import java.util.concurrent.*;
+import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,18 +43,26 @@ public final class ProjectionService implements AutoCloseable {
         long estimatedBytes;
     }
 
+    public ProjectionService(java.util.function.Function<String, SessionLog> logs,
+                             ReadModelPersistenceService persistence) {
+        this.logs = logs;
+        store = new ReadModelStore(persistence);
+        worker = newWorker();
+    }
+
+    @Deprecated(forRemoval = true)
     public ProjectionService(ChatSessions sessions, Path workspace) {
-        this(sessions::log, workspace);
+        throw new UnsupportedOperationException("请注入 ReadModelPersistenceService");
     }
 
+    @Deprecated(forRemoval = true)
     public ProjectionService(java.util.function.Function<String, SessionLog> logs, Path workspace) {
-        this.logs = logs; store = new ReadModelStore(workspace);
-        worker = newWorker();
+        throw new UnsupportedOperationException("请注入 ReadModelPersistenceService");
     }
 
+    @Deprecated(forRemoval = true)
     public ProjectionService(java.util.function.Function<String, SessionLog> logs, DataSource dataSource) {
-        this.logs = logs; store = new ReadModelStore(dataSource);
-        worker = newWorker();
+        throw new UnsupportedOperationException("请注入 ReadModelPersistenceService");
     }
 
     private ScheduledExecutorService newWorker() {
