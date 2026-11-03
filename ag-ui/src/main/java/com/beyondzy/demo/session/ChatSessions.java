@@ -22,7 +22,7 @@ import com.beyondzy.demo.tools.DocSearchTools;
 import com.beyondzy.demo.tools.NoteTools;
 import com.beyondzy.demo.tools.OrderTools;
 import com.beyondzy.demo.service.display.DisplayIndexService;
-import com.beyondzy.demo.service.ReadModelPersistenceService;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import java.nio.file.Path;
 import javax.sql.DataSource;
 import java.util.LinkedHashMap;
