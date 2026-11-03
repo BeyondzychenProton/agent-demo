@@ -19,7 +19,6 @@
         <!-- AgentScope 与官方示例同版，本地仓库已缓存，API 与参考源码一致 -->
         <agentscope.version>2.1.0-BETA1</agentscope.version>
         <spring.boot.version>4.0.4</spring.boot.version>
-        <mybatis-plus.version>3.5.18</mybatis-plus.version>
     </properties>
 
     <!-- BOM 顺序：先 AgentScope（覆盖 jackson/reactor/okhttp 等重叠版本），再 Spring Boot -->
@@ -71,21 +70,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-        <!-- MySQL 数据访问：MyBatis-Plus 负责 Mapper 增强，JDBC 驱动由运行时提供 -->
+        <!-- 会话日志和展示读模型直接使用 Spring JDBC -->
         <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
-        </dependency>
-        <!-- 密码采用 BCrypt 单向哈希存储，不保存明文 -->
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-crypto</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

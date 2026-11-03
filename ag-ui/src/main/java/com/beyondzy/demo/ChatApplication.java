@@ -2,7 +2,6 @@ package com.beyondzy.demo;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.mybatis.spring.annotation.MapperScan;
 
 /**
  * 应用入口。
@@ -13,7 +12,6 @@ import org.mybatis.spring.annotation.MapperScan;
  * <p>运行时的模型与会话装配见 {@code com.beyondzy.demo.config.ChatConfiguration}。
  */
 @SpringBootApplication
-@MapperScan("com.beyondzy.demo.mapper")
 public class ChatApplication {
 
     public static void main(String[] args) {
