@@ -6,7 +6,7 @@ import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.util.JsonUtils;
-import com.beyondzy.demo.service.display.DisplayIndexService;
+import com.beyondzy.demo.display.DisplayIndexService;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;

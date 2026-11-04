@@ -1,7 +1,7 @@
 package com.beyondzy.demo.readmodel;
 
-import com.beyondzy.demo.snapshot.ChatHistory;
-import com.beyondzy.demo.snapshot.ThreadViewAssembler;
+import com.beyondzy.demo.readmodel.ChatHistory;
+import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.session.SessionKey;
 import io.agentscope.core.session.SessionLog;

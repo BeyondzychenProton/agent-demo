@@ -2,8 +2,8 @@ package com.beyondzy.demo.config;
 
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
-import com.beyondzy.demo.service.display.DisplayIndexService;
-import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.display.DisplayIndexService;
+import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;

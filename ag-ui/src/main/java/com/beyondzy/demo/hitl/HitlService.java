@@ -1,6 +1,6 @@
 package com.beyondzy.demo.hitl;
 
-import com.beyondzy.demo.contract.ThreadView;
+import com.beyondzy.demo.readmodel.ThreadView;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.event.ConfirmResult;
 import io.agentscope.core.message.ToolUseBlock;

@@ -1,6 +1,6 @@
 package com.beyondzy.demo.readmodel;
 
-import com.beyondzy.demo.contract.ThreadView;
+import com.beyondzy.demo.readmodel.ThreadView;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;

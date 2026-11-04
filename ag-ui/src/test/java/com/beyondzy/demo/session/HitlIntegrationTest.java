@@ -1,7 +1,7 @@
 package com.beyondzy.demo.session;
 
 import static org.junit.jupiter.api.Assertions.*;
-import com.beyondzy.demo.contract.ThreadView;
+import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.model.*;
 import io.agentscope.core.message.*;
@@ -217,7 +217,7 @@ class HitlIntegrationTest {
     @Test void 重连通知无需等待新事件且不伪造日志游标() throws Exception {
         try (var sessions = new ChatSessions(workspace, new ScriptModel())) {
             pending(sessions);
-            var controller = new com.beyondzy.demo.web.ChatController(sessions);
+            var controller = new com.beyondzy.demo.web.chat.ChatController(sessions);
             var first = controller.interactionEvents("test").next().block(Duration.ofSeconds(5));
             assertNotNull(first); assertEquals("hitl-view-changed", first.event()); assertNull(first.id());
             sessions.answer("test", card(sessions).hitl().requestId(), "reject", "");
@@ -229,12 +229,12 @@ class HitlIntegrationTest {
     @Test void 接口返回接收重复与冲突状态码() throws Exception {
         try (var sessions = new ChatSessions(workspace, new ScriptModel())) {
             pending(sessions);
-            var controller = new com.beyondzy.demo.web.ChatController(sessions);
+            var controller = new com.beyondzy.demo.web.chat.ChatController(sessions);
             String id = card(sessions).hitl().requestId();
-            var approved = new com.beyondzy.demo.web.ChatController.ApprovalAnswer("approve", "");
+            var approved = new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("approve", "");
             assertEquals(202, controller.answer("test", id, approved).block(Duration.ofSeconds(10)).getStatusCode().value());
             assertEquals(200, controller.answer("test", id, approved).block(Duration.ofSeconds(10)).getStatusCode().value());
-            var conflict = controller.answer("test", id, new com.beyondzy.demo.web.ChatController.ApprovalAnswer("reject", ""))
+            var conflict = controller.answer("test", id, new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("reject", ""))
                     .block(Duration.ofSeconds(10));
             assertEquals(409, conflict.getStatusCode().value());
             assertTrue(conflict.getBody().contains("currentView"));
@@ -266,11 +266,11 @@ class HitlIntegrationTest {
         try (var sessions = new ChatSessions(workspace, new ScriptModel())) {
             pending(sessions);
             var c = card(sessions);
-            var controller = new com.beyondzy.demo.web.ChatController(sessions);
+            var controller = new com.beyondzy.demo.web.chat.ChatController(sessions);
             assertEquals(200, controller.cancel("test", c.turnId()).block(Duration.ofSeconds(10)).getStatusCode().value());
             assertEquals(200, controller.cancel("test", c.turnId()).block(Duration.ofSeconds(10)).getStatusCode().value());
             var stale = controller.answer("test", c.hitl().requestId(),
-                    new com.beyondzy.demo.web.ChatController.ApprovalAnswer("approve", ""))
+                    new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("approve", ""))
                     .block(Duration.ofSeconds(10));
             assertEquals(409, stale.getStatusCode().value());
             assertTrue(stale.getBody().contains("cancelled"));

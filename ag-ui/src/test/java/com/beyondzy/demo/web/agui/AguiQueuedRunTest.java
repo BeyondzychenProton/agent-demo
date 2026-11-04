@@ -1,5 +1,6 @@
 package com.beyondzy.demo.web.agui;
 
+import com.beyondzy.demo.agui.AguiService;
 import static org.junit.jupiter.api.Assertions.*;
 import com.beyondzy.demo.session.ChatSessions;
 import io.agentscope.core.message.*;

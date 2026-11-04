@@ -210,12 +210,12 @@ Removed after completion: `service/`, `snapshot/`, `projection/`, `contract/`.
 
 ## Plan Status
 
-- [ ] Task 1 — web controller subpackages
-- [ ] Task 2 — AguiService → agui
-- [ ] Task 3 — service.session → session
-- [ ] Task 4 — service.readmodel → readmodel
-- [ ] Task 5 — display module gather
-- [ ] Task 6 — service.user → user; delete service/
-- [ ] Task 7 — snapshot + ThreadView → readmodel
-- [ ] Task 8 — AguiEventProjection → agui
-- [ ] Task 9 — full test + cleanup
+- [x] Task 1 — web controller subpackages
+- [x] Task 2 — AguiService → agui
+- [x] Task 3 — service.session → session
+- [x] Task 4 — service.readmodel → readmodel
+- [x] Task 5 — display module gather
+- [x] Task 6 — service.user → user; delete service/
+- [x] Task 7 — snapshot + ThreadView → readmodel
+- [x] Task 8 — AguiEventProjection → agui
+- [x] Task 9 — full test + cleanup

@@ -1,10 +1,10 @@
 package com.beyondzy.demo.readmodel;
 
 import com.beyondzy.demo.session.ChatSessions;
-import com.beyondzy.demo.web.ChatController;
-import com.beyondzy.demo.web.ReadModelController;
+import com.beyondzy.demo.web.chat.ChatController;
+import com.beyondzy.demo.web.readmodel.ReadModelController;
 import com.beyondzy.demo.web.agui.AguiController;
-import com.beyondzy.demo.web.agui.AguiService;
+import com.beyondzy.demo.agui.AguiService;
 import io.agentscope.core.message.*;
 import io.agentscope.core.model.*;
 import io.agentscope.core.session.SessionEvent;
