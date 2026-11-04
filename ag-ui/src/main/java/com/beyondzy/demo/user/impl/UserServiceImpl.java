@@ -59,11 +59,16 @@ public class UserServiceImpl implements UserService {
     public UserBean ensureSeedUser(long preferredId, String name, String phone, String rawPassword) {
         UserBean byPhone = findByPhone(phone);
         if (byPhone != null) {
+            boolean dirty = false;
+            if (name != null && !name.equals(byPhone.getName())) {
+                byPhone.setName(name);
+                dirty = true;
+            }
             if (!matchesPassword(byPhone, rawPassword)) {
                 byPhone.setPasswordHash(passwordEncoder.encode(rawPassword));
-                byPhone.setName(name);
-                mapper.updateById(byPhone);
+                dirty = true;
             }
+            if (dirty) mapper.updateById(byPhone);
             return byPhone;
         }
         UserBean byId = mapper.selectById(preferredId);

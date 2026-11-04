@@ -3,7 +3,7 @@ import {
   useThreads,
   type Thread,
 } from "@copilotkit/react-core/v2";
-import { MessageSquarePlus, RefreshCcw, Trash2 } from "lucide-react";
+import { LogOut, MessageSquarePlus, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import type { AuthUser } from "@/auth/api";
@@ -14,6 +14,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 const ACTIVE_THREAD_KEY = "session-chat.active-thread";
+
+/** 优先展示可读姓名（中文或纯 ASCII）；乱码名回退手机号。 */
+function accountLabel(user: AuthUser) {
+  const name = user.name?.trim();
+  if (!name) return user.phone;
+  if (/[\u4e00-\u9fff]/.test(name) || /^[A-Za-z0-9 _.-]+$/.test(name)) return name;
+  return user.phone;
+}
 
 export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?: () => void } = {}) {
   const chatConfig = useCopilotChatConfiguration();
@@ -69,7 +77,7 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
 
   return (
     <aside
-      className="glass-panel grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[1.75rem] p-4 max-[520px]:rounded-2xl"
+      className="glass-panel grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] overflow-hidden rounded-[1.75rem] p-4 max-[520px]:rounded-2xl"
       aria-label="会话列表"
     >
       <PanelTitle
@@ -77,12 +85,25 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
         title="会话"
         icon={<MessageSquarePlus className="size-5" />}
       />
-      {user && onLogout && (
-        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{user.name || user.phone}</span>
-          <button type="button" className="shrink-0 underline" onClick={onLogout}>退出</button>
+      {user && onLogout ? (
+        <div className="mb-3 flex items-center gap-2 rounded-2xl border border-border/70 bg-secondary/25 px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">{accountLabel(user)}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{user.phone}</p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 !rounded-full"
+            onClick={onLogout}
+            aria-label="退出登录"
+          >
+            <LogOut className="size-3.5" />
+            退出
+          </Button>
         </div>
-      )}
+      ) : null}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" className="rounded-full" onClick={handleNewThread}>
           <MessageSquarePlus className="size-4" />
