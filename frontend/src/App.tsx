@@ -1,6 +1,8 @@
 import { CopilotChatInput, useCopilotChatConfiguration } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
 import { lazy, Suspense, useEffect, useState } from "react";
+import type { AuthUser } from "@/auth/api";
+import { apiFetch } from "@/auth/api";
 import { ThreadListPanel } from "@/components/ThreadListPanel";
 import { WindowedTranscript, TranscriptItem } from "@/components/WindowedTranscript";
 import { getThreadStore, useThreadView, type ViewItem } from "@/readmodel/threadStore";
@@ -8,22 +10,28 @@ import { getThreadStore, useThreadView, type ViewItem } from "@/readmodel/thread
 /** 公共输入组件与受控消息视图组合，历史加载不启动 Agent，也不再连接全量历史通道。 */
 const LegacyChatApp = lazy(() => import("@/components/LegacyChatApp"));
 
-export default function App() {
+export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: () => void } = {}) {
   const windowed = import.meta.env.VITE_WINDOWED_TRANSCRIPT !== "false";
-  return windowed ? <WindowedApp /> : <Suspense fallback={<p>正在加载兼容页面…</p>}><LegacyChatApp /></Suspense>;
+  if (!windowed) {
+    return <Suspense fallback={<p>正在加载兼容页面…</p>}><LegacyChatApp /></Suspense>;
+  }
+  if (!user || !onLogout) return <p>未登录</p>;
+  return <WindowedApp user={user} onLogout={onLogout} />;
 }
 
-function WindowedApp() {
+function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const config = useCopilotChatConfiguration();
   const [diagnostic, setDiagnostic] = useState(false);
   const threadId = config?.threadId;
   return <main className="h-screen w-screen p-4">
     <div className="mx-auto grid h-full max-w-[1700px] grid-cols-[260px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1 max-[760px]:grid-rows-[180px_minmax(0,1fr)]">
-      <ThreadListPanel />
+      <ThreadListPanel user={user} onLogout={onLogout} />
       {threadId ? <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold">Session Chat</h1>
-          <button onClick={() => setDiagnostic(value => !value)} className="text-xs underline">{diagnostic ? "关闭" : "打开"}服务端视图</button>
+          <div className="flex items-center gap-3 text-xs">
+            <button onClick={() => setDiagnostic(value => !value)} className="underline">{diagnostic ? "关闭" : "打开"}服务端视图</button>
+          </div>
         </div>
         <PendingInbox key={`inbox-${threadId}`} threadId={threadId} />
         <div className={`grid min-h-0 flex-1 gap-4 ${diagnostic ? "grid-cols-2 max-[1000px]:grid-cols-1" : "grid-cols-1"}`}>
@@ -47,7 +55,7 @@ function ChatInput({ threadId }: { threadId: string }) {
     if (!command) return;
     setText("");
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(threadId)}/turns`, {
+      const response = await apiFetch(`/api/sessions/${encodeURIComponent(threadId)}/turns`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ request_id: command.requestId, message: command.text }),
         signal: AbortSignal.timeout(15000),
@@ -93,7 +101,7 @@ function PendingInbox({ threadId }: { threadId: string }) {
   useEffect(() => {
     if (!open || !view.status?.pendingCount) return;
     const abort = new AbortController();
-    void fetch(`/api/v2/threads/${encodeURIComponent(threadId)}/interactions?after=${after}`, { signal: abort.signal })
+    void apiFetch(`/api/v2/threads/${encodeURIComponent(threadId)}/interactions?after=${after}`, { signal: abort.signal })
       .then(async response => { if (!response.ok) throw new Error("读取待答失败"); return response.json(); })
       .then(data => { if (!abort.signal.aborted) { setItems(data.items); setNext(data.nextCursor); setError(""); } })
       .catch(caught => { if (!abort.signal.aborted) setError(caught.message); });

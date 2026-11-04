@@ -1,11 +1,16 @@
 package com.beyondzy.demo.web.readmodel;
 
+import com.beyondzy.demo.auth.support.AuthRequests;
+import com.beyondzy.demo.auth.support.CurrentUser;
+import com.beyondzy.demo.auth.support.SessionNotFoundException;
+import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.readmodel.ProjectionService;
 import com.beyondzy.demo.readmodel.ReadModelStore;
 import com.beyondzy.demo.session.ChatSessions;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
@@ -27,14 +32,14 @@ public final class ReadModelController {
     @GetMapping
     public Mono<String> threads(@RequestParam(defaultValue = "20") int limit,
                                 @RequestParam(required = false) String cursor) {
-        return Mono.fromCallable(() -> ReadModelStore.json(sessions.threads(limit, cursor)))
-                .subscribeOn(Schedulers.boundedElastic());
+        return AuthRequests.call(() -> ReadModelStore.json(sessions.threads(limit, cursor)));
     }
 
     @GetMapping("/{id}/view")
     public Mono<String> view(@PathVariable String id, @RequestParam(defaultValue = "50") int limit,
                              @RequestParam(required = false) String before) {
-        return Mono.fromCallable(() -> {
+        return AuthRequests.call(() -> {
+            sessions.assertAccessible(id);
             projection.watch(id);
             var page = projection.store().page(id, limit, before);
             var result = new LinkedHashMap<String, Object>();
@@ -45,61 +50,72 @@ public final class ReadModelController {
                         "status", hitl.get("interactionStatus"));
             }).toList());
             return ReadModelStore.json(result);
-        }).subscribeOn(Schedulers.boundedElastic());
+        });
     }
 
     @GetMapping("/{id}/interactions")
     public Mono<String> interactions(@PathVariable String id, @RequestParam(defaultValue = "0") long after,
                                      @RequestParam(defaultValue = "20") int limit) {
-        return Mono.fromCallable(() -> {
+        return AuthRequests.call(() -> {
+            sessions.assertAccessible(id);
             projection.watch(id);
             var items = projection.store().pending(id, after, limit);
             return ReadModelStore.json(Map.of("items", items, "total", projection.store().pendingCount(id),
                     "nextCursor", items.isEmpty() ? "" : Long.toString(items.get(items.size() - 1).orderKey())));
-        }).subscribeOn(Schedulers.boundedElastic());
+        });
     }
 
     @GetMapping("/{id}/items/{itemId}/content")
     public Mono<String> content(@PathVariable String id, @PathVariable String itemId,
             @RequestParam long version, @RequestParam String field, @RequestParam(defaultValue = "0") int cursor) {
-        return Mono.fromCallable(() -> {
+        return AuthRequests.call(() -> {
+            sessions.assertAccessible(id);
             projection.watch(id);
             return ReadModelStore.json(projection.store().content(id, itemId, version, field, cursor));
-        }).subscribeOn(Schedulers.boundedElastic());
+        });
     }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> events(@PathVariable String id, @RequestParam String after,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
-        return Flux.defer(() -> {
-            var cursor = new AtomicReference<>(lastEventId == null || lastEventId.isBlank() ? after : lastEventId);
-            var status = new AtomicReference<>("");
-            Flux<ServerSentEvent<String>> changes = Flux.interval(Duration.ZERO, Duration.ofMillis(100))
-                    .onBackpressureDrop().concatMap(tick -> Mono.fromCallable(() -> {
-                        projection.watch(id);
-                        var frames = new ArrayList<ServerSentEvent<String>>();
-                        for (var change : projection.store().changes(id, cursor.get())) {
-                            frames.add(ServerSentEvent.<String>builder(ReadModelStore.json(change))
-                                    .event("item").id(change.cursor()).build());
-                            cursor.set(change.cursor());
-                        }
-                        String current = ReadModelStore.json(projection.status(id));
-                        if (!current.equals(status.getAndSet(current)))
-                            frames.add(ServerSentEvent.<String>builder(current).event("status").build());
-                        return frames;
-                    }).subscribeOn(Schedulers.boundedElastic()), 1).flatMapIterable(frames -> frames)
-                    .onErrorResume(ReadModelStore.Gone.class, error -> Flux.just(ServerSentEvent.<String>builder(
-                            "{\"reason\":\"历史水位已过期\"}").event("reset-required").build()));
-            var heartbeat = Flux.interval(Duration.ofSeconds(15)).map(tick ->
-                    ServerSentEvent.<String>builder().comment("keepalive").build());
-            return Flux.merge(changes, heartbeat).takeUntil(frame -> "reset-required".equals(frame.event()))
-                    .onBackpressureBuffer(32, ignored -> {}, reactor.core.publisher.BufferOverflowStrategy.ERROR);
+        return CurrentUser.requireUserId().flatMapMany(userId -> {
+            String uid = String.valueOf(userId);
+            return Flux.defer(() -> {
+                var cursor = new AtomicReference<>(lastEventId == null || lastEventId.isBlank() ? after : lastEventId);
+                var status = new AtomicReference<>("");
+                Flux<ServerSentEvent<String>> changes = Flux.interval(Duration.ZERO, Duration.ofMillis(100))
+                        .onBackpressureDrop().concatMap(tick -> Mono.fromCallable(() -> UserContext.call(uid, () -> {
+                            sessions.assertAccessible(id);
+                            projection.watch(id);
+                            var frames = new ArrayList<ServerSentEvent<String>>();
+                            for (var change : projection.store().changes(id, cursor.get())) {
+                                frames.add(ServerSentEvent.<String>builder(ReadModelStore.json(change))
+                                        .event("item").id(change.cursor()).build());
+                                cursor.set(change.cursor());
+                            }
+                            String current = ReadModelStore.json(projection.status(id));
+                            if (!current.equals(status.getAndSet(current)))
+                                frames.add(ServerSentEvent.<String>builder(current).event("status").build());
+                            return frames;
+                        })).subscribeOn(Schedulers.boundedElastic()), 1).flatMapIterable(frames -> frames)
+                        .onErrorResume(ReadModelStore.Gone.class, error -> Flux.just(ServerSentEvent.<String>builder(
+                                "{\"reason\":\"历史水位已过期\"}").event("reset-required").build()));
+                var heartbeat = Flux.interval(Duration.ofSeconds(15)).map(tick ->
+                        ServerSentEvent.<String>builder().comment("keepalive").build());
+                return Flux.merge(changes, heartbeat).takeUntil(frame -> "reset-required".equals(frame.event()))
+                        .onBackpressureBuffer(32, ignored -> {}, reactor.core.publisher.BufferOverflowStrategy.ERROR);
+            });
         });
     }
 
     @ExceptionHandler(ReadModelStore.Gone.class)
     public ResponseEntity<Map<String, String>> gone(ReadModelStore.Gone error) {
         return ResponseEntity.status(410).body(Map.of("error", error.getMessage()));
+    }
+
+    @ExceptionHandler(SessionNotFoundException.class)
+    public ResponseEntity<Map<String, String>> missing(SessionNotFoundException error) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", error.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

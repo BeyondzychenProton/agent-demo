@@ -1,5 +1,6 @@
 package com.beyondzy.demo.session;
 
+import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
@@ -46,7 +47,8 @@ public final class ChatSessions implements AutoCloseable {
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
     private final SessionLogStore store;
-    private final String userId;
+    private final String defaultUserId;
+    private final AgentSessionService agentSessions;
     private final ThreadCatalog catalog;
     private final DisplayViewStore displayViews;
     private final ProjectionService projection;
@@ -101,16 +103,24 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, "local-user", null, null);
+        this(workspace, model, null, "local-user", null, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
-        this.userId = userId;
+        this.defaultUserId = userId;
+        this.agentSessions = agentSessionService;
         store = sessionLogStore;
         // 演示工具：注册到框架 Toolkit，执行仍由 HarnessAgent 驱动（大纲 M7 / 6.1.9）
         Toolkit toolkit = new Toolkit();
@@ -179,22 +189,35 @@ public final class ChatSessions implements AutoCloseable {
         return value;
     }
 
-    /** 构造框架运行上下文：userId 固定，sessionId 原样使用会话 id（共享键，大纲 3.2）。 */
+    private String activeUserId() {
+        return UserContext.current().orElse(defaultUserId);
+    }
+
+    /** 构造框架运行上下文：userId 取当前请求用户，sessionId 原样使用会话 id。 */
     private RuntimeContext context(String session) {
-        return RuntimeContext.builder().userId(userId).sessionId(id(session)).build();
+        return RuntimeContext.builder().userId(activeUserId()).sessionId(id(session)).build();
+    }
+
+    /**
+     * 若会话已登记到其他用户则拒绝；未登记的新会话允许当前用户首次写入时认领。
+     */
+    public void assertAccessible(String sessionId) {
+        SessionAccess.assertOwnedOrNew(agentSessions, AGENT, id(sessionId), activeUserId());
     }
 
     public SessionLog log(String session) {
+        assertAccessible(session);
         return session(session).log();
     }
 
     AgentSession session(String id) {
+        assertAccessible(id);
         return agent.session(context(id));
     }
 
     /** 列出本 agent 下所有已落盘的会话 id。 */
     public List<String> list() {
-        return store.list(RuntimeContext.builder().userId(userId).build()).stream()
+        return store.list(RuntimeContext.builder().userId(activeUserId()).build()).stream()
                 .filter(key -> key.agentId().equals(AGENT))
                 .map(key -> key.sessionId())
                 .sorted()

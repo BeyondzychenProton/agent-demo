@@ -172,7 +172,7 @@ class ThreadStore {
     const abort = new AbortController(); this.abort = abort;
     this.publish({ loading: true, error: undefined });
     try {
-      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view`, { signal: abort.signal });
+      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view`, { signal: abort.signal, credentials: "include" });
       if (!response.ok) throw new Error("暂时无法读取会话，请重新加载");
       const data = await response.json() as Response;
       if (epoch !== this.epoch) return;
@@ -211,7 +211,7 @@ class ThreadStore {
   refresh = async () => {
     const epoch = this.epoch;
     try {
-      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view`, { signal: this.abort?.signal });
+      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view`, { signal: this.abort?.signal, credentials: "include" });
       if (!response.ok) throw new Error("当前状态暂不可读，请稍后重新查询");
       const data = await response.json() as Response;
       if (epoch !== this.epoch) return;
@@ -226,7 +226,7 @@ class ThreadStore {
     this.readingHistory = true;
     const epoch = this.epoch; this.publish({ fetching: true });
     try {
-      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view?before=${encodeURIComponent(this.next)}`, { signal: this.abort?.signal });
+      const response = await fetch(`/api/v2/threads/${encodeURIComponent(this.thread)}/view?before=${encodeURIComponent(this.next)}`, { signal: this.abort?.signal, credentials: "include" });
       if (response.status === 410) { await this.reload(); return; }
       if (!response.ok) throw new Error("更早历史加载失败");
       const data = await response.json() as Response;

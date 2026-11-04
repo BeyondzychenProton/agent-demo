@@ -1,0 +1,77 @@
+package com.beyondzy.demo.web.auth;
+
+import com.beyondzy.demo.auth.cookie.AuthCookieSupport;
+import com.beyondzy.demo.auth.service.AuthService;
+import com.beyondzy.demo.auth.service.AuthSessionService;
+import com.beyondzy.demo.auth.support.CurrentUser;
+import java.util.Map;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
+
+/** 登录 / 退出 / 当前用户。 */
+@RestController
+@RequestMapping(value = "/api/auth", produces = MediaType.APPLICATION_JSON_VALUE)
+public class AuthController {
+    private final AuthService auth;
+    private final AuthSessionService sessions;
+    private final AuthCookieSupport cookies;
+
+    public AuthController(AuthService auth, AuthSessionService sessions, AuthCookieSupport cookies) {
+        this.auth = auth;
+        this.sessions = sessions;
+        this.cookies = cookies;
+    }
+
+    @PostMapping("/login")
+    public Mono<ResponseEntity<Map<String, Object>>> login(
+            @RequestBody Map<String, String> body, ServerWebExchange exchange) {
+        return Mono.fromCallable(() -> auth.login(body.get("phone"), body.get("password")))
+                .subscribeOn(Schedulers.boundedElastic())
+                .map(result -> {
+                    cookies.write(exchange.getResponse(), result.session().rawToken(),
+                            sessions.remainingMaxAgeSeconds(result.session().row()));
+                    Map<String, Object> payload = auth.toUserBody(
+                            result.user(),
+                            result.session().row().getExpiresAt(),
+                            result.session().rawToken());
+                    return ResponseEntity.ok(payload);
+                });
+    }
+
+    @PostMapping("/logout")
+    public Mono<ResponseEntity<Void>> logout(ServerWebExchange exchange) {
+        String raw = cookies.readRawToken(exchange);
+        String bearer = bearer(exchange);
+        String token = bearer != null ? bearer : raw;
+        return Mono.fromRunnable(() -> {
+                    auth.logout(token);
+                    cookies.clear(exchange.getResponse());
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .thenReturn(ResponseEntity.noContent().build());
+    }
+
+    @GetMapping("/me")
+    public Mono<Map<String, Object>> me() {
+        return CurrentUser.require()
+                .flatMap(principal -> Mono.fromCallable(() -> {
+                    var user = auth.requireUser(principal.userId());
+                    return auth.toUserBody(user, null, null);
+                }).subscribeOn(Schedulers.boundedElastic()));
+    }
+
+    private static String bearer(ServerWebExchange exchange) {
+        String header = exchange.getRequest().getHeaders().getFirst("Authorization");
+        if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) return null;
+        String token = header.substring(7).trim();
+        return token.isEmpty() ? null : token;
+    }
+}

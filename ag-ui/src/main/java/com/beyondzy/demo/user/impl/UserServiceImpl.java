@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.user.UserService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,9 +14,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserServiceImpl implements UserService {
     private static final String PHONE_PATTERN = "^\\+?[0-9]{7,20}$";
     private final UserMapper mapper;
+    private final JdbcTemplate jdbc;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public UserServiceImpl(UserMapper mapper) { this.mapper = mapper; }
+    public UserServiceImpl(UserMapper mapper, JdbcTemplate jdbc) {
+        this.mapper = mapper;
+        this.jdbc = jdbc;
+    }
 
     @Override
     @Transactional
@@ -36,5 +41,43 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserBean findByPhone(String phone) {
         return mapper.selectOne(Wrappers.<UserBean>lambdaQuery().eq(UserBean::getPhone, phone));
+    }
+
+    @Override
+    public UserBean findById(long id) {
+        return mapper.selectById(id);
+    }
+
+    @Override
+    public boolean matchesPassword(UserBean user, String rawPassword) {
+        return user != null && rawPassword != null
+                && passwordEncoder.matches(rawPassword, user.getPasswordHash());
+    }
+
+    @Override
+    @Transactional
+    public UserBean ensureSeedUser(long preferredId, String name, String phone, String rawPassword) {
+        UserBean byPhone = findByPhone(phone);
+        if (byPhone != null) {
+            if (!matchesPassword(byPhone, rawPassword)) {
+                byPhone.setPasswordHash(passwordEncoder.encode(rawPassword));
+                byPhone.setName(name);
+                mapper.updateById(byPhone);
+            }
+            return byPhone;
+        }
+        UserBean byId = mapper.selectById(preferredId);
+        if (byId != null) {
+            byId.setName(name);
+            byId.setPhone(phone);
+            byId.setPasswordHash(passwordEncoder.encode(rawPassword));
+            mapper.updateById(byId);
+            return byId;
+        }
+        long now = System.currentTimeMillis();
+        jdbc.update(
+                "INSERT INTO app_user(id, name, phone, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                preferredId, name, phone, passwordEncoder.encode(rawPassword), now, now);
+        return mapper.selectById(preferredId);
     }
 }

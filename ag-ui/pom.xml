@@ -87,10 +87,10 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- 用户密码只以 BCrypt 哈希形式保存。 -->
+        <!-- 用户密码 BCrypt；WebFlux 登录态由 Spring Security 鉴权链承载。 -->
         <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-crypto</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

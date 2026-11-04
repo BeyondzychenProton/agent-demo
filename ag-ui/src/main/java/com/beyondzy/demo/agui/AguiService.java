@@ -1,8 +1,10 @@
 package com.beyondzy.demo.agui;
 
 import com.beyondzy.demo.agui.AguiEventProjection;
+import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.ThreadCatalog;
+import java.util.function.Supplier;
 import io.agentscope.core.agui.encoder.AguiEventEncoder;
 import io.agentscope.core.agui.event.AguiEvent;
 import io.agentscope.core.agui.model.AguiMessage;
@@ -170,11 +172,15 @@ public final class AguiService {
      * 既无活动执行、也无待执行命令时发 RUN_STARTED → MESSAGES_SNAPSHOT → RUN_FINISHED。
      */
     public Flux<ServerSentEvent<String>> connect(String threadId, String runId) {
+        return connect(UserContext.current().orElse("local-user"), threadId, runId);
+    }
+
+    public Flux<ServerSentEvent<String>> connect(String userId, String threadId, String runId) {
         // 空 threadId 兜底生成（空线程直接发空握手）
         if (threadId == null || threadId.isBlank()) threadId = newThreadId();
         String rid = (runId == null || runId.isBlank()) ? newRunId() : runId;
         String tid = threadId;
-        return Mono.fromCallable(() -> {
+        return blocking(userId, () -> {
             List<AguiMessage> history = new ArrayList<>();
             String activeRunId = null;
             ThreadCatalog.DisplaySnapshot snapshot;
@@ -200,14 +206,14 @@ public final class AguiService {
             }
             if (activeRunId != null) return new ConnectState(history, activeRunId, null);
             return new ConnectState(history, null, null);
-        }).subscribeOn(Schedulers.boundedElastic()).flatMapMany(state -> {
+        }).flatMapMany(state -> {
             if (state.commandId() != null) {
                 // 协议 runId 与实际执行号不同；排队期间也可以先完成连接握手。
                 return Flux.<AguiEvent>just(
                                 new AguiEvent.RunStarted(tid, rid),
                                 new AguiEvent.MessagesSnapshot(tid, rid, state.history()))
                         .map(this::toSse)
-                        .concatWith(pollCommand(tid, rid, state.commandId(), "msg-" + UUID.randomUUID(), 0L));
+                        .concatWith(pollCommand(userId, tid, rid, state.commandId(), "msg-" + UUID.randomUUID(), 0L));
             }
             if (state.activeRunId() != null) {
                 String liveRunId = state.activeRunId();
@@ -215,7 +221,7 @@ public final class AguiService {
                                 new AguiEvent.RunStarted(tid, liveRunId),
                                 new AguiEvent.MessagesSnapshot(tid, liveRunId, state.history()))
                         .map(this::toSse)
-                        .concatWith(pollStream(tid, liveRunId, liveRunId,
+                        .concatWith(pollStream(userId, tid, liveRunId, liveRunId,
                                 "msg-" + UUID.randomUUID(), 0L));
             }
             return Flux.<AguiEvent>just(
@@ -224,6 +230,11 @@ public final class AguiService {
                             new AguiEvent.RunFinished(tid, rid))
                     .map(this::toSse);
         });
+    }
+
+    private <T> Mono<T> blocking(String userId, Supplier<T> action) {
+        return Mono.fromCallable(() -> UserContext.call(userId, action))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     private record ConnectState(List<AguiMessage> history, String activeRunId, String commandId) {}
@@ -248,6 +259,10 @@ public final class AguiService {
      * 轮询 committed 日志，把 model/chunk 文本 delta 翻成 TEXT_MESSAGE_*，run/end 收口。
      */
     public Flux<ServerSentEvent<String>> run(String agentId, Map<String, Object> body) {
+        return run(UserContext.current().orElse("local-user"), agentId, body);
+    }
+
+    public Flux<ServerSentEvent<String>> run(String userId, String agentId, Map<String, Object> body) {
         String threadId = str(body.get("threadId"));
         if (threadId == null || threadId.isBlank()) threadId = newThreadId();
         String runId = str(body.get("runId"));
@@ -267,14 +282,13 @@ public final class AguiService {
         Flux<ServerSentEvent<String>> started =
                 Flux.just(toSse(new AguiEvent.RunStarted(finalThread, finalRun)));
 
-        return Mono.fromCallable(() -> {
+        return blocking(userId, () -> {
                     // 提交前确定水位，否则快速完成的 chunk/run-end 可能被跳过。
                     long beforeSubmit = sessions.log(finalThread).head().seq();
                     return new Submitted(sessions.submit(finalThread, finalRun, userText), beforeSubmit);
                 })
-                .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(submitted -> started.concatWith(pollCommand(
-                        finalThread, finalRun, submitted.task().commandId(), messageId, submitted.afterSeq())));
+                        userId, finalThread, finalRun, submitted.task().commandId(), messageId, submitted.afterSeq())));
     }
 
     private record Submitted(AgentSession.Task task, long afterSeq) {}
@@ -287,13 +301,13 @@ public final class AguiService {
      * 页面断开只停止观察，不撤销持久命令，重连可由 latestTask 找回。
      */
     private Flux<ServerSentEvent<String>> pollCommand(
-            String threadId, String protocolRunId, String commandId, String messageId, long afterSeq) {
+            String userId, String threadId, String protocolRunId, String commandId, String messageId, long afterSeq) {
         return Flux.defer(() -> {
             AtomicLong cursor = new AtomicLong(afterSeq);
             AtomicReference<AguiEventProjection> projection = new AtomicReference<>();
             return Flux.interval(Duration.ZERO, Duration.ofMillis(300))
                     .onBackpressureDrop()
-                    .concatMap(tick -> Mono.fromCallable(() -> {
+                    .concatMap(tick -> blocking(userId, () -> {
                         if (projection.get() == null) {
                             var task = sessions.task(threadId, commandId);
                             if ("rejected".equals(task.status()))
@@ -304,7 +318,7 @@ public final class AguiService {
                         var events = sessions.events(threadId, cursor.get(), 128);
                         events.forEach(event -> cursor.set(event.seq()));
                         return projection.get().apply(events);
-                    }).subscribeOn(Schedulers.boundedElastic()), 1)
+                    }), 1)
                     .flatMapIterable(events -> events)
                     .takeUntil(AguiService::isRunFinished)
                     .map(this::toSse);
@@ -313,10 +327,9 @@ public final class AguiService {
 
     /** 无命令关联的既有活动执行，从明确水位重放。 */
     private Flux<ServerSentEvent<String>> pollStream(
-            String threadId, String inputRunId, String targetRunId, String messageId, long replayFrom) {
+            String userId, String threadId, String inputRunId, String targetRunId, String messageId, long replayFrom) {
         // 重连起点由调用方明确指定，不在这里重新获取最新 head。
-        return Mono.fromCallable(() -> replayFrom)
-                .subscribeOn(Schedulers.boundedElastic())
+        return blocking(userId, () -> replayFrom)
                 .flatMapMany(
                         startSeq -> {
                             AtomicLong cursor = new AtomicLong(startSeq);
@@ -327,14 +340,11 @@ public final class AguiService {
                                     .onBackpressureDrop()
                                     .concatMap(
                                             tick ->
-                                                    Mono.fromCallable(
-                                                                    () ->
+                                                    blocking(userId, () ->
                                                                             sessions.events(
                                                                                     threadId,
                                                                                     cursor.get(),
-                                                                                    128))
-                                                            .subscribeOn(
-                                                                    Schedulers.boundedElastic()),
+                                                                                    128)),
                                             1)
                                     .flatMapIterable(
                                             events -> {

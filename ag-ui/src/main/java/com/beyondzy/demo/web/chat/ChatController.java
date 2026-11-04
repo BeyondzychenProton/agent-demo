@@ -1,6 +1,10 @@
 package com.beyondzy.demo.web.chat;
 
 import io.agentscope.core.util.JsonUtils;
+import com.beyondzy.demo.auth.support.AuthRequests;
+import com.beyondzy.demo.auth.support.CurrentUser;
+import com.beyondzy.demo.auth.support.SessionNotFoundException;
+import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.readmodel.ChatHistory;
@@ -44,12 +48,9 @@ public class ChatController {
         this.sessions = sessions;
     }
 
-    /**
-     * 把同步读取包装成 Mono，并切到弹性线程池，避免阻塞 WebFlux 事件循环。
-     */
+    /** 在当前登录用户上下文中执行同步读取，避免阻塞 WebFlux 事件循环。 */
     private Mono<String> json(Supplier<?> read) {
-        return Mono.fromCallable(() -> JsonUtils.getJsonCodec().toJson(read.get()))
-                .subscribeOn(Schedulers.boundedElastic());
+        return AuthRequests.call(() -> JsonUtils.getJsonCodec().toJson(read.get()));
     }
 
     /**
@@ -88,57 +89,42 @@ public class ChatController {
             @PathVariable String id,
             @RequestParam(required = false) String after,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
-        return Mono.fromCallable(
-                        () -> {
-                            // after 与 Last-Event-ID 取较大者作为续读水位
-                            long position =
-                                    Math.max(
-                                            ChatHistory.position(id, after),
-                                            ChatHistory.position(id, lastEventId));
-                            // 发送响应头前先校验游标合法
-                            sessions.events(id, position, 1);
-                            return new AtomicLong(position);
-                        })
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(
-                        cursor -> {
-                            // committed 批次轮询：每 300ms 从水位往后读，逐帧推送并推进游标
-                            Flux<ServerSentEvent<String>> committed =
-                                    Flux.interval(Duration.ZERO, Duration.ofMillis(300))
-                                            .onBackpressureDrop()
-                                            .concatMap(tick -> Mono.fromCallable(() ->
-                                                            sessions.events(id, cursor.get(), 128))
-                                                    .subscribeOn(
-                                                            Schedulers.boundedElastic()), 1)
-                                            .flatMapIterable(batch -> batch)
-                                            .map(event -> {
-                                                cursor.set(event.seq());
-                                                return ServerSentEvent.<String>builder(
-                                                                JsonUtils.getJsonCodec()
-                                                                        .toJson(
-                                                                                ChatHistory
-                                                                                        .frame(
-                                                                                                event)))
-                                                        .event("committed")
-                                                        .id(
-                                                                ChatHistory.cursor(
-                                                                        id, event.seq()))
-                                                        .build();
-                                            });
-                            // 15s keepalive 注释帧
-                            Flux<ServerSentEvent<String>> heartbeat =
-                                    Flux.interval(Duration.ofSeconds(15))
-                                            .map(
-                                                    tick ->
-                                                            ServerSentEvent.<String>builder()
-                                                                    .comment("keepalive")
-                                                                    .build());
-                            return Flux.merge(committed, heartbeat)
-                                    .startWith(
-                                            ServerSentEvent.<String>builder()
-                                                    .comment("connected")
-                                                    .build());
-                        });
+        return CurrentUser.requireUserId().flatMapMany(userId -> {
+            String uid = String.valueOf(userId);
+            return Mono.fromCallable(() -> UserContext.call(uid, () -> {
+                                long position = Math.max(
+                                        ChatHistory.position(id, after),
+                                        ChatHistory.position(id, lastEventId));
+                                sessions.events(id, position, 1);
+                                return new AtomicLong(position);
+                            }))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMapMany(cursor -> {
+                        Flux<ServerSentEvent<String>> committed =
+                                Flux.interval(Duration.ZERO, Duration.ofMillis(300))
+                                        .onBackpressureDrop()
+                                        .concatMap(tick -> Mono.fromCallable(() ->
+                                                        UserContext.call(uid, () ->
+                                                                sessions.events(id, cursor.get(), 128)))
+                                                .subscribeOn(Schedulers.boundedElastic()), 1)
+                                        .flatMapIterable(batch -> batch)
+                                        .map(event -> {
+                                            cursor.set(event.seq());
+                                            return ServerSentEvent.<String>builder(
+                                                            JsonUtils.getJsonCodec()
+                                                                    .toJson(ChatHistory.frame(event)))
+                                                    .event("committed")
+                                                    .id(ChatHistory.cursor(id, event.seq()))
+                                                    .build();
+                                        });
+                        Flux<ServerSentEvent<String>> heartbeat =
+                                Flux.interval(Duration.ofSeconds(15))
+                                        .map(tick -> ServerSentEvent.<String>builder()
+                                                .comment("keepalive").build());
+                        return Flux.merge(committed, heartbeat)
+                                .startWith(ServerSentEvent.<String>builder().comment("connected").build());
+                    });
+        });
     }
 
     /**
@@ -161,72 +147,44 @@ public class ChatController {
             @PathVariable String id,
             @RequestParam(required = false) String after,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
-        return Mono.fromCallable(
-                        () -> {
-                            long position =
-                                    Math.max(
-                                            ChatHistory.position(id, after),
-                                            ChatHistory.position(id, lastEventId));
-                            sessions.events(id, position, 1);
-                            return new AtomicLong(position);
-                        })
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(
-                        cursor -> {
-                            IncrementalEventProjection projection =
-                                    new IncrementalEventProjection();
-                            Flux<ServerSentEvent<String>> committed =
-                                    Flux.interval(Duration.ZERO, Duration.ofMillis(300))
-                                            .onBackpressureDrop()
-                                            .concatMap(
-                                                    tick ->
-                                                            Mono.fromCallable(
-                                                                            () ->
-                                                                                    sessions
-                                                                                            .events(
-                                                                                                    id,
-                                                                                                    cursor
-                                                                                                            .get(),
-                                                                                                    128))
-                                                                    .subscribeOn(
-                                                                            Schedulers
-                                                                                    .boundedElastic()),
-                                                    1)
-                                            .flatMapIterable(batch -> batch)
-                                            .concatMap(
-                                                    event -> {
-                                                        cursor.set(event.seq());
-                                                        List<ThreadView.IncrementalEvent> mapped =
-                                                                projection.apply(List.of(event));
-                                                        String eventId =
-                                                                ChatHistory.cursor(
-                                                                        id, event.seq());
-                                                        return Flux.fromIterable(mapped)
-                                                                .map(
-                                                                        value ->
-                                                                                ServerSentEvent
-                                                                                        .<String>builder(
-                                                                                                JsonUtils
-                                                                                                        .getJsonCodec()
-                                                                                                        .toJson(
-                                                                                                                value))
-                                                                                        .event("view")
-                                                                                        .id(eventId)
-                                                                                        .build());
-                                                    });
-                            Flux<ServerSentEvent<String>> heartbeat =
-                                    Flux.interval(Duration.ofSeconds(15))
-                                            .map(
-                                                    tick ->
-                                                            ServerSentEvent.<String>builder()
-                                                                    .comment("keepalive")
-                                                                    .build());
-                            return Flux.merge(committed, heartbeat)
-                                    .startWith(
-                                            ServerSentEvent.<String>builder()
-                                                    .comment("connected")
-                                                    .build());
-                        });
+        return CurrentUser.requireUserId().flatMapMany(userId -> {
+            String uid = String.valueOf(userId);
+            return Mono.fromCallable(() -> UserContext.call(uid, () -> {
+                                long position = Math.max(
+                                        ChatHistory.position(id, after),
+                                        ChatHistory.position(id, lastEventId));
+                                sessions.events(id, position, 1);
+                                return new AtomicLong(position);
+                            }))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMapMany(cursor -> {
+                        IncrementalEventProjection projection = new IncrementalEventProjection();
+                        Flux<ServerSentEvent<String>> committed =
+                                Flux.interval(Duration.ZERO, Duration.ofMillis(300))
+                                        .onBackpressureDrop()
+                                        .concatMap(tick -> Mono.fromCallable(() ->
+                                                        UserContext.call(uid, () ->
+                                                                sessions.events(id, cursor.get(), 128)))
+                                                .subscribeOn(Schedulers.boundedElastic()), 1)
+                                        .flatMapIterable(batch -> batch)
+                                        .concatMap(event -> {
+                                            cursor.set(event.seq());
+                                            List<ThreadView.IncrementalEvent> mapped =
+                                                    projection.apply(List.of(event));
+                                            String eventId = ChatHistory.cursor(id, event.seq());
+                                            return Flux.fromIterable(mapped)
+                                                    .map(value -> ServerSentEvent.<String>builder(
+                                                                    JsonUtils.getJsonCodec().toJson(value))
+                                                            .event("view").id(eventId).build());
+                                        });
+                        Flux<ServerSentEvent<String>> heartbeat =
+                                Flux.interval(Duration.ofSeconds(15))
+                                        .map(tick -> ServerSentEvent.<String>builder()
+                                                .comment("keepalive").build());
+                        return Flux.merge(committed, heartbeat)
+                                .startWith(ServerSentEvent.<String>builder().comment("connected").build());
+                    });
+        });
     }
 
     /** 浏览器只表达决定和说明；工具名及参数从服务端原始请求恢复。 */
@@ -241,26 +199,24 @@ public class ChatController {
     @PostMapping("/threads/{id}/interactions/{requestId}/answer")
     public Mono<ResponseEntity<String>> answer(@PathVariable String id,
             @PathVariable String requestId, @RequestBody ApprovalAnswer body) {
-        return Mono.fromCallable(() -> {
+        return AuthRequests.call(() -> {
             var receipt = sessions.answer(id, requestId, body.decision(), body.reason());
             return ResponseEntity.status(receipt.created() ? 202 : 200)
                     .body(JsonUtils.getJsonCodec().toJson(receipt));
-        }).subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(IllegalStateException.class, error -> currentConflict(id, error));
+        }).onErrorResume(IllegalStateException.class, error -> currentConflict(id, error));
     }
 
     /** 取消逻辑任务而非关闭页面；只支持等待阶段，重复取消返回已记录的结果。 */
     @PostMapping("/threads/{id}/turns/{turnId}/cancel")
     public Mono<ResponseEntity<String>> cancel(@PathVariable String id, @PathVariable String turnId) {
-        return Mono.fromCallable(() -> ResponseEntity.ok(JsonUtils.getJsonCodec()
+        return AuthRequests.call(() -> ResponseEntity.ok(JsonUtils.getJsonCodec()
                         .toJson(sessions.cancelPending(id, turnId))))
-                .subscribeOn(Schedulers.boundedElastic())
                 .onErrorResume(IllegalStateException.class, error -> currentConflict(id, error));
     }
 
     /** 冲突不是用户的拒绝决定；返回事实帮助旧设备恢复，而不是静默覆盖先前答复。 */
     private Mono<ResponseEntity<String>> currentConflict(String id, IllegalStateException error) {
-        return Mono.fromCallable(() -> {
+        return AuthRequests.call(() -> {
             Object current;
             try {
                 current = sessions.view(id);
@@ -269,7 +225,7 @@ public class ChatController {
             }
             return ResponseEntity.status(409).body(JsonUtils.getJsonCodec().toJson(
                     Map.of("error", error.getMessage(), "currentView", current)));
-        }).subscribeOn(Schedulers.boundedElastic());
+        });
     }
 
     /**
@@ -280,21 +236,31 @@ public class ChatController {
      */
     @GetMapping(value = "/threads/{id}/interactions/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> interactionEvents(@PathVariable String id) {
-        Flux<ServerSentEvent<String>> changes = Flux.interval(Duration.ZERO, Duration.ofMillis(500)).onBackpressureDrop()
-                .concatMap(tick -> Mono.fromCallable(() -> sessions.interactionRevision(id))
-                        .subscribeOn(Schedulers.boundedElastic()), 1)
-                .distinctUntilChanged()
-                .map(revision -> ServerSentEvent.<String>builder("{\"type\":\"hitl-view-changed\"}")
-                        .event("hitl-view-changed").build());
-        // 空闲期间只发注释心跳，不制造虚假的状态变化。
-        Flux<ServerSentEvent<String>> heartbeat = Flux.interval(Duration.ofSeconds(15))
-                .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
-        return Flux.merge(changes, heartbeat);
+        return CurrentUser.requireUserId().flatMapMany(userId -> {
+            String uid = String.valueOf(userId);
+            Flux<ServerSentEvent<String>> changes = Flux.interval(Duration.ZERO, Duration.ofMillis(500))
+                    .onBackpressureDrop()
+                    .concatMap(tick -> Mono.fromCallable(() ->
+                                    UserContext.call(uid, () -> sessions.interactionRevision(id)))
+                            .subscribeOn(Schedulers.boundedElastic()), 1)
+                    .distinctUntilChanged()
+                    .map(revision -> ServerSentEvent.<String>builder("{\"type\":\"hitl-view-changed\"}")
+                            .event("hitl-view-changed").build());
+            Flux<ServerSentEvent<String>> heartbeat = Flux.interval(Duration.ofSeconds(15))
+                    .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
+            return Flux.merge(changes, heartbeat);
+        });
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> invalid(IllegalArgumentException error) {
+        return Map.of("error", error.getMessage());
+    }
+
+    @ExceptionHandler(SessionNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> missing(SessionNotFoundException error) {
         return Map.of("error", error.getMessage());
     }
 

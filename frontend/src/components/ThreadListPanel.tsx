@@ -6,6 +6,7 @@ import {
 import { MessageSquarePlus, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import type { AuthUser } from "@/auth/api";
 import { THREAD_AGENT_ID } from "@/copilot/constants";
 import { PanelTitle } from "@/components/PanelTitle";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 const ACTIVE_THREAD_KEY = "session-chat.active-thread";
 
-export function ThreadListPanel() {
+export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?: () => void } = {}) {
   const chatConfig = useCopilotChatConfiguration();
   const restoredThreadRef = useRef(false);
   const {
@@ -76,6 +77,12 @@ export function ThreadListPanel() {
         title="会话"
         icon={<MessageSquarePlus className="size-5" />}
       />
+      {user && onLogout && (
+        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="truncate">{user.name || user.phone}</span>
+          <button type="button" className="shrink-0 underline" onClick={onLogout}>退出</button>
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" className="rounded-full" onClick={handleNewThread}>
           <MessageSquarePlus className="size-4" />

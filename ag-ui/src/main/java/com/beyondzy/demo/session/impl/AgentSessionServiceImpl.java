@@ -26,4 +26,9 @@ public class AgentSessionServiceImpl implements AgentSessionService {
                 .map(row -> new SessionKey(userIdText, row.getAgentId(), row.getSessionId()))
                 .toList();
     }
+
+    @Override
+    public Long findUserId(String agentId, String sessionId) {
+        return mapper.findUserId(agentId, sessionId);
+    }
 }

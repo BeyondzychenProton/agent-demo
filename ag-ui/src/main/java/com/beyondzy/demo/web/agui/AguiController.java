@@ -1,6 +1,8 @@
 package com.beyondzy.demo.web.agui;
 
 import com.beyondzy.demo.agui.AguiService;
+import com.beyondzy.demo.auth.support.AuthRequests;
+import com.beyondzy.demo.auth.support.CurrentUser;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -37,54 +39,56 @@ public final class AguiController {
 
     /** GET /agui/run/info：Runtime 能力与 agent 声明。 */
     @GetMapping("/info")
-    public Map<String, Object> info() {
-        return agui.info();
+    public Mono<Map<String, Object>> info() {
+        return AuthRequests.call(agui::info);
     }
 
     /** GET /agui/run/threads：按摘要更新时间分页列出会话。 */
     @GetMapping("/threads")
-    public Map<String, Object> threads(
+    public Mono<Map<String, Object>> threads(
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(required = false) String cursor) {
         if (limit < 1 || limit > 100)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limit 必须在 1~100 之间");
-        try {
-            return agui.listThreads(limit, cursor);
-        } catch (IllegalArgumentException error) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
-        }
+        return AuthRequests.call(() -> {
+            try {
+                return agui.listThreads(limit, cursor);
+            } catch (IllegalArgumentException error) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
+            }
+        });
     }
 
     /** POST /agui/run/threads：新建线程（只发 id，惰性落盘）。 */
     @PostMapping("/threads")
-    public Map<String, Object> createThread(@RequestBody(required = false) Map<String, Object> body) {
-        return agui.createThread(body == null ? Map.of() : body);
+    public Mono<Map<String, Object>> createThread(@RequestBody(required = false) Map<String, Object> body) {
+        return AuthRequests.call(() -> agui.createThread(body == null ? Map.of() : body));
     }
 
     /** PATCH /agui/run/threads/{id}：重命名（不落表，回显）。 */
     @PatchMapping("/threads/{id}")
-    public Map<String, Object> renameThread(
+    public Mono<Map<String, Object>> renameThread(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
-        return agui.noopThread(id, body == null ? Map.of() : body);
+        return AuthRequests.call(() -> agui.noopThread(id, body == null ? Map.of() : body));
     }
 
     /** POST /agui/run/threads/{id}/archive：归档（不落表，回显成功）。 */
     @PostMapping("/threads/{id}/archive")
-    public Map<String, Object> archiveThread(
+    public Mono<Map<String, Object>> archiveThread(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
-        return agui.noopThread(id, body == null ? Map.of() : body);
+        return AuthRequests.call(() -> agui.noopThread(id, body == null ? Map.of() : body));
     }
 
     /** DELETE /agui/run/threads/{id}：删除（不删日志，仅回显成功）。 */
     @DeleteMapping("/threads/{id}")
-    public Map<String, Object> deleteThread(@PathVariable String id) {
-        return Map.of("deleted", true, "threadId", id);
+    public Mono<Map<String, Object>> deleteThread(@PathVariable String id) {
+        return AuthRequests.call(() -> Map.of("deleted", true, "threadId", id));
     }
 
     /** GET /agui/run/threads/{id}/messages：历史消息。 */
     @GetMapping("/threads/{id}/messages")
-    public Map<String, Object> messages(@PathVariable String id) {
-        return agui.messages(id);
+    public Mono<Map<String, Object>> messages(@PathVariable String id) {
+        return AuthRequests.call(() -> agui.messages(id));
     }
 
     /** POST /agui/agent/{agentId}/connect（SSE）：连接握手 + 历史快照回放。 */
@@ -95,7 +99,8 @@ public final class AguiController {
             @PathVariable String agentId, @RequestBody(required = false) Map<String, Object> body) {
         String threadId = str(body == null ? null : body.get("threadId"));
         String runId = str(body == null ? null : body.get("runId"));
-        return agui.connect(threadId, runId);
+        return CurrentUser.requireUserId()
+                .flatMapMany(userId -> agui.connect(String.valueOf(userId), threadId, runId));
     }
 
     /** POST /agui/agent/{agentId}/run（SSE）：提交消息并返回 AG-UI 流式事件。 */
@@ -104,7 +109,8 @@ public final class AguiController {
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> run(
             @PathVariable String agentId, @RequestBody Map<String, Object> body) {
-        return agui.run(agentId, body);
+        return CurrentUser.requireUserId()
+                .flatMapMany(userId -> agui.run(String.valueOf(userId), agentId, body));
     }
 
     private static String str(Object value) {

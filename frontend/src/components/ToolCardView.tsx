@@ -63,6 +63,7 @@ export function ToolCardView({ card, threadId, onChanged }: {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: decision === "cancel" ? undefined : JSON.stringify({ decision, reason: submittedReason }),
         signal: AbortSignal.timeout(15000),
+        credentials: "include",
       });
       if (!response.ok) {
         setNotice(response.status === 409 ? "状态已变化，请重新查询当前结果" : "未能确认提交结果，请重新查询");

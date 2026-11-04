@@ -10,4 +10,7 @@ public interface AgentSessionService {
 
     /** 列出指定用户的全部会话键。 */
     List<SessionKey> list(long userId, String userIdText);
+
+    /** 查询会话所属用户；不存在返回 null。 */
+    Long findUserId(String agentId, String sessionId);
 }

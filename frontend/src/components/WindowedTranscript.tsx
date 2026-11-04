@@ -111,7 +111,7 @@ function ContentDetail({ threadId, entry, field, bytes }: { threadId: string; en
   useEffect(() => {
     if (!open) return;
     const abort = new AbortController(); setData(undefined); setError(undefined);
-    void fetch(`/api/v2/threads/${encodeURIComponent(threadId)}/items/${encodeURIComponent(entry.itemId)}/content?version=${entry.contentVersion}&field=${encodeURIComponent(field)}&cursor=${cursor}`, { signal: abort.signal })
+    void fetch(`/api/v2/threads/${encodeURIComponent(threadId)}/items/${encodeURIComponent(entry.itemId)}/content?version=${entry.contentVersion}&field=${encodeURIComponent(field)}&cursor=${cursor}`, { signal: abort.signal, credentials: "include" })
       .then(async response => { if (!response.ok) throw new Error("该内容版本暂不可读，请刷新消息"); return response.json(); })
       .then(value => { if (!abort.signal.aborted) setData(value); })
       .catch(caught => { if (!abort.signal.aborted) setError(String(caught.message)); });

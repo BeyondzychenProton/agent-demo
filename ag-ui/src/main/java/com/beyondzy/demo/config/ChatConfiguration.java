@@ -1,5 +1,6 @@
 package com.beyondzy.demo.config;
 
+import com.beyondzy.demo.session.AgentSessionService;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
 import com.beyondzy.demo.display.DisplayIndexService;
@@ -27,8 +28,8 @@ public class ChatConfiguration {
             MySqlSessionLogStore mySqlSessionLogStore,
             DisplayIndexService displayIndex,
             ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService,
             @Value("${chat.workspace}") String workspace,
-            @Value("${chat.user-id:1}") String userId,
             @Value("${chat.base-url}") String baseUrl,
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
@@ -48,7 +49,8 @@ public class ChatConfiguration {
                         .build();
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
+        // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, userId, displayIndex, readModelPersistence);
+                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService);
     }
 }

@@ -29,4 +29,8 @@ public interface AgentSessionMapper {
             @Result(column = "updated_at", property = "updatedAt")
     })
     List<AgentSessionBean> findByUserId(@Param("userId") long userId);
+
+    /** 查询会话归属用户；不存在时返回 null。 */
+    @Select("SELECT user_id FROM agent_session WHERE agent_id = #{agentId} AND session_id = #{sessionId} LIMIT 1")
+    Long findUserId(@Param("agentId") String agentId, @Param("sessionId") String sessionId);
 }

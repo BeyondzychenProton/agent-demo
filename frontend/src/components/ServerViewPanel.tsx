@@ -60,7 +60,7 @@ export function ServerViewPanel({ threadId }: { threadId?: string | null }) {
       try {
         while (dirty && !cancelled) {
           dirty = false;
-          const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/view`);
+          const response = await fetch(`/api/threads/${encodeURIComponent(threadId)}/view`, { credentials: "include" });
           if (!response.ok) throw new Error("读取当前交互状态失败，请重新查询");
           const value = (await response.json()) as SnapshotResponse;
           if (cancelled) return;
