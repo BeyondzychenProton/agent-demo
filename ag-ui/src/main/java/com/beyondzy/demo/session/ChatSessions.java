@@ -147,7 +147,7 @@ public final class ChatSessions implements AutoCloseable {
                         .maxIters(8)
                         .build();
         catalog = new ThreadCatalog(workspace);
-        displayViews = new DisplayViewStore(dataSource);
+        displayViews = new DisplayViewStore(workspace);
         // 启动时恢复已落盘会话，并根据日志水位修复列表读取索引。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());

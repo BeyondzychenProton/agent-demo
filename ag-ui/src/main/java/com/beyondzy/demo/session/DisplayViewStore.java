@@ -3,8 +3,12 @@ package com.beyondzy.demo.session;
 import com.beyondzy.demo.contract.ThreadView;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.file.Path;
-import javax.sql.DataSource;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,19 +17,31 @@ import java.util.Map;
 final class DisplayViewStore {
     private static final int FORMAT = 1;
     record Saved(long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {}
-    private final DataSource dataSource;
+    private final Path database;
 
-    DisplayViewStore(DataSource dataSource) {
-        this.dataSource = dataSource;
+    DisplayViewStore(Path workspace) {
+        this.database = workspace.resolve("thread-catalog.sqlite3");
+        migrate();
     }
 
-    @Deprecated(forRemoval = true)
-    DisplayViewStore(Path workspace) {
-        throw new UnsupportedOperationException("旧文件型展示视图存储已移除，请注入 MySQL 数据源");
+    private void migrate() {
+        try (Connection connection = open(); Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS display_view(
+                        thread_id TEXT PRIMARY KEY,
+                        seq INTEGER NOT NULL,
+                        format INTEGER NOT NULL,
+                        has_interactions INTEGER NOT NULL,
+                        payload TEXT NOT NULL
+                    )
+                    """);
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法初始化展示视图 SQLite", error);
+        }
     }
 
     private Connection open() throws SQLException {
-        return dataSource.getConnection();
+        return DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
     }
 
     /** 水位和格式均匹配才返回；旧水位不能冒充当前页面。 */
@@ -63,16 +79,16 @@ final class DisplayViewStore {
         }
         try (var connection = open(); var write = connection.prepareStatement("""
                 INSERT INTO display_view(thread_id,seq,format,has_interactions,payload) VALUES(?,?,?,?,?)
-                ON DUPLICATE KEY UPDATE
-                payload=IF(VALUES(seq)>=seq,VALUES(payload),payload),
-                has_interactions=IF(VALUES(seq)>=seq,VALUES(has_interactions),has_interactions),
-                format=IF(VALUES(seq)>=seq,VALUES(format),format),
-                seq=GREATEST(seq,VALUES(seq))
+                ON CONFLICT(thread_id) DO UPDATE SET
+                  payload=CASE WHEN excluded.seq>=display_view.seq THEN excluded.payload ELSE display_view.payload END,
+                  has_interactions=CASE WHEN excluded.seq>=display_view.seq THEN excluded.has_interactions ELSE display_view.has_interactions END,
+                  format=CASE WHEN excluded.seq>=display_view.seq THEN excluded.format ELSE display_view.format END,
+                  seq=MAX(display_view.seq, excluded.seq)
                 """)) {
             write.setString(1, id);
             write.setLong(2, seq);
             write.setInt(3, FORMAT);
-            write.setBoolean(4, hasInteractions);
+            write.setInt(4, hasInteractions ? 1 : 0);
             write.setString(5, JsonUtils.getJsonCodec().toJson(view));
             write.executeUpdate();
         } catch (SQLException error) {
