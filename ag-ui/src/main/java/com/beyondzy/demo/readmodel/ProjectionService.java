@@ -9,7 +9,6 @@ import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.util.*;
 import java.util.concurrent.*;
 import org.slf4j.Logger;
@@ -48,11 +47,6 @@ public final class ProjectionService implements AutoCloseable {
 
     public ProjectionService(java.util.function.Function<String, SessionLog> logs, Path workspace) {
         this.logs = logs; store = new ReadModelStore(workspace);
-        worker = newWorker();
-    }
-
-    public ProjectionService(java.util.function.Function<String, SessionLog> logs, DataSource dataSource) {
-        this.logs = logs; store = new ReadModelStore(dataSource);
         worker = newWorker();
     }
 

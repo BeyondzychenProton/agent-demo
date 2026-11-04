@@ -5,7 +5,6 @@ import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.security.MessageDigest;
 import java.sql.*;
 import java.util.*;
@@ -26,15 +25,84 @@ public final class ReadModelStore implements AutoCloseable {
     public record Content(List<String> blocks, String nextCursor, String encoding) {}
     private record Cursor(String thread, String generation, long revision, long before, long expires) {}
     private final Connection db;
-    public ReadModelStore(DataSource dataSource) {
+    public ReadModelStore(Path workspace) {
         try {
-            db = dataSource.getConnection();
-        } catch (SQLException error) { throw new IllegalStateException("无法连接 MySQL 展示读库", error); }
+            db = DriverManager.getConnection("jdbc:sqlite:" + workspace.resolve("read-model.sqlite3").toAbsolutePath());
+            migrate(db);
+        } catch (SQLException error) { throw new IllegalStateException("无法连接展示读库", error); }
     }
 
-    @Deprecated(forRemoval = true)
-    public ReadModelStore(Path workspace) {
-        throw new UnsupportedOperationException("旧文件型读模型存储已移除，请注入 MySQL 数据源");
+    private static void migrate(Connection db) throws SQLException {
+        try (Statement statement = db.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_head(
+                        thread TEXT PRIMARY KEY,
+                        generation TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        exec_seq INTEGER NOT NULL,
+                        inbox_seq INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        lease_tag TEXT NOT NULL,
+                        checkpoint TEXT NOT NULL,
+                        control TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_raw(
+                        thread TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        PRIMARY KEY(thread, id)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_item(
+                        thread TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        until_revision INTEGER,
+                        order_key INTEGER NOT NULL,
+                        payload TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        PRIMARY KEY(thread, id, revision)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_pending(
+                        thread TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        order_key INTEGER NOT NULL,
+                        PRIMARY KEY(thread, id)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_change(
+                        thread TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        item_id TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        PRIMARY KEY(thread, revision)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_block(
+                        hash TEXT PRIMARY KEY,
+                        body TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS rm_content(
+                        thread TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        field TEXT NOT NULL,
+                        block_no INTEGER NOT NULL,
+                        hash TEXT NOT NULL,
+                        encoding TEXT NOT NULL,
+                        PRIMARY KEY(thread, id, revision, field, block_no)
+                    )
+                    """);
+        }
     }
 
     public synchronized State state(String thread) {
@@ -124,7 +192,10 @@ public final class ReadModelStore implements AutoCloseable {
         try {
             db.setAutoCommit(false);
             for (var item : rawItems) {
-                try (var insert = db.prepareStatement("INSERT INTO rm_raw VALUES(?,?,?) ON DUPLICATE KEY UPDATE payload=VALUES(payload)")) {
+                try (var insert = db.prepareStatement("""
+                        INSERT INTO rm_raw(thread,id,payload) VALUES(?,?,?)
+                        ON CONFLICT(thread,id) DO UPDATE SET payload=excluded.payload
+                        """)) {
                     insert.setString(1, thread); insert.setString(2, item.id()); insert.setString(3, json(item)); insert.executeUpdate();
                 }
             }
@@ -161,9 +232,11 @@ public final class ReadModelStore implements AutoCloseable {
                 }
             }
             try (var head = db.prepareStatement("""
-                    INSERT INTO rm_head VALUES(?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE
-                    revision=VALUES(revision),exec_seq=VALUES(exec_seq),inbox_seq=VALUES(inbox_seq),
-                    updated_at=VALUES(updated_at),lease_tag=VALUES(lease_tag),checkpoint=VALUES(checkpoint),control=VALUES(control)
+                    INSERT INTO rm_head(thread,generation,revision,exec_seq,inbox_seq,updated_at,lease_tag,checkpoint,control)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(thread) DO UPDATE SET
+                    revision=excluded.revision,exec_seq=excluded.exec_seq,inbox_seq=excluded.inbox_seq,
+                    updated_at=excluded.updated_at,lease_tag=excluded.lease_tag,checkpoint=excluded.checkpoint,control=excluded.control
                     """)) {
                 head.setString(1, thread); head.setString(2, generation); head.setLong(3, revision);
                 head.setLong(4, execSeq); head.setLong(5, inboxSeq); head.setLong(6, now);
@@ -215,7 +288,7 @@ public final class ReadModelStore implements AutoCloseable {
             List<String> blocks = blocks(text);
             for (int index = 0; index < blocks.size(); index++) {
                 String block = blocks.get(index), hash = hash(block);
-                try (var insert = db.prepareStatement("INSERT IGNORE INTO rm_block VALUES(?,?)")) {
+                try (var insert = db.prepareStatement("INSERT OR IGNORE INTO rm_block(hash,body) VALUES(?,?)")) {
                     insert.setString(1, hash); insert.setString(2, block); insert.executeUpdate();
                 }
                 try (var insert = db.prepareStatement("INSERT INTO rm_content VALUES(?,?,?,?,?,?,?)")) {

@@ -153,7 +153,7 @@ public final class ChatSessions implements AutoCloseable {
         existing.forEach(id -> session(id).start());
         existing.forEach(id -> catalog.sync(id, log(id)));
         catalog.retain(java.util.Set.copyOf(existing));
-        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, dataSource);
+        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, workspace);
     }
 
     /**
