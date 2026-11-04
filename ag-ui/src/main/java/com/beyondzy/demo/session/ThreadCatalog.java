@@ -1,7 +1,5 @@
 package com.beyondzy.demo.session;
 
-import com.beyondzy.demo.domain.ThreadCatalogBean;
-import com.beyondzy.demo.service.ThreadCatalogService;
 import com.beyondzy.demo.snapshot.ChatHistory;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -10,17 +8,18 @@ import io.agentscope.core.session.SessionLog;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
-import javax.sql.DataSource;
 
-/** MySQL 会话目录和已完成会话的展示快照；执行日志仍是会话内容的权威来源。 */
+/** 工作区 SQLite 会话目录和已完成会话的展示快照；执行日志仍是会话内容的权威来源。 */
 public final class ThreadCatalog {
     public record Summary(String id, String title, long createdAt, long updatedAt, long seq, boolean named) {}
     public record Page(List<Summary> threads, String nextCursor) {}
@@ -29,22 +28,70 @@ public final class ThreadCatalog {
     public record DisplaySnapshot(long seq, List<DisplayMessage> messages, List<DisplayTurn> turns) {}
     private record Position(long updatedAt, String id, long expires) {}
 
-    private final ThreadCatalogService service;
-    private final DataSource dataSource;
+    private final Path database;
 
-    ThreadCatalog(ThreadCatalogService service, DataSource dataSource) {
-        this.service = service;
-        this.dataSource = dataSource;
+    ThreadCatalog(Path workspace) {
+        this.database = workspace.resolve("thread-catalog.sqlite3");
+        migrate();
     }
 
-    @Deprecated(forRemoval = true)
-    ThreadCatalog(Path workspace) {
-        throw new UnsupportedOperationException("旧文件型会话目录已移除，请注入 MySQL 服务");
+    private void migrate() {
+        try (Connection connection = open(); Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS thread_catalog(
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        seq INTEGER NOT NULL,
+                        named INTEGER NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS display_head(
+                        thread_id TEXT PRIMARY KEY,
+                        seq INTEGER NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS display_message(
+                        thread_id TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        message_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        PRIMARY KEY(thread_id, ordinal)
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS display_turn(
+                        thread_id TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        run_id TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        PRIMARY KEY(thread_id, ordinal)
+                    )
+                    """);
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法初始化会话目录 SQLite", error);
+        }
+    }
+
+    private Connection open() throws SQLException {
+        return DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
     }
 
     synchronized Summary get(String id) {
-        ThreadCatalogBean row = service.findById(id);
-        return row == null ? null : summary(row);
+        try (Connection connection = open();
+                PreparedStatement query = connection.prepareStatement(
+                        "SELECT id,title,created_at,updated_at,seq,named FROM thread_catalog WHERE id=?")) {
+            query.setString(1, id);
+            try (ResultSet rows = query.executeQuery()) {
+                return rows.next() ? summary(rows) : null;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法读取会话目录", error);
+        }
     }
 
     /** 从已提交日志补齐目录摘要。 */
@@ -88,29 +135,63 @@ public final class ThreadCatalog {
     }
 
     synchronized void retain(Set<String> loggedIds) {
-        for (ThreadCatalogBean row : service.listAll()) {
-            if (!loggedIds.contains(row.getId())) service.deleteById(row.getId());
+        try (Connection connection = open();
+                PreparedStatement query = connection.prepareStatement("SELECT id FROM thread_catalog");
+                ResultSet rows = query.executeQuery()) {
+            List<String> stale = new ArrayList<>();
+            while (rows.next()) {
+                String id = rows.getString(1);
+                if (!loggedIds.contains(id)) stale.add(id);
+            }
+            try (PreparedStatement delete = connection.prepareStatement("DELETE FROM thread_catalog WHERE id=?")) {
+                for (String id : stale) {
+                    delete.setString(1, id);
+                    delete.executeUpdate();
+                }
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法清理会话目录", error);
         }
     }
 
     synchronized Page page(int requestedLimit, String cursor) {
         int limit = requestedLimit <= 0 ? 20 : Math.min(requestedLimit, 100);
         Position after = decode(cursor);
-        List<Summary> rows = service.listRecentAfter(limit + 1,
-                after == null ? null : after.updatedAt(), after == null ? null : after.id())
-                .stream().map(ThreadCatalog::summary).toList();
+        List<Summary> rows = new ArrayList<>();
+        String sql = after == null
+                ? "SELECT id,title,created_at,updated_at,seq,named FROM thread_catalog ORDER BY updated_at DESC, id DESC LIMIT ?"
+                : """
+                  SELECT id,title,created_at,updated_at,seq,named FROM thread_catalog
+                  WHERE updated_at < ? OR (updated_at = ? AND id < ?)
+                  ORDER BY updated_at DESC, id DESC LIMIT ?
+                  """;
+        try (Connection connection = open(); PreparedStatement query = connection.prepareStatement(sql)) {
+            if (after == null) {
+                query.setInt(1, limit + 1);
+            } else {
+                query.setLong(1, after.updatedAt());
+                query.setLong(2, after.updatedAt());
+                query.setString(3, after.id());
+                query.setInt(4, limit + 1);
+            }
+            try (ResultSet result = query.executeQuery()) {
+                while (result.next()) rows.add(summary(result));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法分页读取会话目录", error);
+        }
         boolean more = rows.size() > limit;
-        List<Summary> result = more ? rows.subList(0, limit) : rows;
+        List<Summary> page = more ? rows.subList(0, limit) : rows;
         long expires = after == null ? System.currentTimeMillis() + 30 * 60_000L : after.expires();
-        String next = more ? encode(result.getLast(), expires) : null;
-        return new Page(List.copyOf(result), next);
+        String next = more ? encode(page.getLast(), expires) : null;
+        return new Page(List.copyOf(page), next);
     }
 
     synchronized DisplaySnapshot display(String id, long seq) { return readDisplay(id, seq, false); }
     synchronized DisplaySnapshot previousDisplay(String id, long seq) { return readDisplay(id, seq, true); }
 
     private DisplaySnapshot readDisplay(String id, long seq, boolean previous) {
-        try (Connection connection = dataSource.getConnection()) {
+        try (Connection connection = open()) {
             connection.setAutoCommit(false);
             try {
                 long savedSeq;
@@ -123,14 +204,16 @@ public final class ThreadCatalog {
                 }
                 if (previous ? savedSeq >= seq : savedSeq != seq) return null;
                 List<DisplayMessage> messages = new ArrayList<>();
-                try (PreparedStatement query = connection.prepareStatement("SELECT message_id,role,content FROM display_message WHERE thread_id=? ORDER BY ordinal")) {
+                try (PreparedStatement query = connection.prepareStatement(
+                        "SELECT message_id,role,content FROM display_message WHERE thread_id=? ORDER BY ordinal")) {
                     query.setString(1, id);
                     try (ResultSet rows = query.executeQuery()) {
                         while (rows.next()) messages.add(new DisplayMessage(rows.getString(1), rows.getString(2), rows.getString(3)));
                     }
                 }
                 List<DisplayTurn> turns = new ArrayList<>();
-                try (PreparedStatement query = connection.prepareStatement("SELECT run_id,status FROM display_turn WHERE thread_id=? ORDER BY ordinal")) {
+                try (PreparedStatement query = connection.prepareStatement(
+                        "SELECT run_id,status FROM display_turn WHERE thread_id=? ORDER BY ordinal")) {
                     query.setString(1, id);
                     try (ResultSet rows = query.executeQuery()) {
                         while (rows.next()) turns.add(new DisplayTurn(rows.getString(1), rows.getString(2)));
@@ -146,7 +229,7 @@ public final class ThreadCatalog {
 
     /** 消息、轮次和水位在同一事务中更新。 */
     synchronized void saveDisplay(String id, DisplaySnapshot value) {
-        try (Connection connection = dataSource.getConnection()) {
+        try (Connection connection = open()) {
             connection.setAutoCommit(false);
             try {
                 for (String table : List.of("display_message", "display_turn")) {
@@ -154,7 +237,8 @@ public final class ThreadCatalog {
                         delete.setString(1, id); delete.executeUpdate();
                     }
                 }
-                try (PreparedStatement insert = connection.prepareStatement("INSERT INTO display_message(thread_id,ordinal,message_id,role,content) VALUES(?,?,?,?,?)")) {
+                try (PreparedStatement insert = connection.prepareStatement(
+                        "INSERT INTO display_message(thread_id,ordinal,message_id,role,content) VALUES(?,?,?,?,?)")) {
                     int ordinal = 0;
                     for (DisplayMessage message : value.messages()) {
                         insert.setString(1, id); insert.setInt(2, ordinal++); insert.setString(3, message.id());
@@ -162,7 +246,8 @@ public final class ThreadCatalog {
                     }
                     insert.executeBatch();
                 }
-                try (PreparedStatement insert = connection.prepareStatement("INSERT INTO display_turn(thread_id,ordinal,run_id,status) VALUES(?,?,?,?)")) {
+                try (PreparedStatement insert = connection.prepareStatement(
+                        "INSERT INTO display_turn(thread_id,ordinal,run_id,status) VALUES(?,?,?,?)")) {
                     int ordinal = 0;
                     for (DisplayTurn turn : value.turns()) {
                         insert.setString(1, id); insert.setInt(2, ordinal++); insert.setString(3, turn.runId());
@@ -170,7 +255,10 @@ public final class ThreadCatalog {
                     }
                     insert.executeBatch();
                 }
-                try (PreparedStatement head = connection.prepareStatement("INSERT INTO display_head(thread_id,seq) VALUES(?,?) ON DUPLICATE KEY UPDATE seq=VALUES(seq)")) {
+                try (PreparedStatement head = connection.prepareStatement("""
+                        INSERT INTO display_head(thread_id,seq) VALUES(?,?)
+                        ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq
+                        """)) {
                     head.setString(1, id); head.setLong(2, value.seq()); head.executeUpdate();
                 }
                 connection.commit();
@@ -181,16 +269,31 @@ public final class ThreadCatalog {
     }
 
     private void save(Summary value) {
-        ThreadCatalogBean row = new ThreadCatalogBean();
-        row.setId(value.id()); row.setTitle(value.title()); row.setCreatedAt(value.createdAt());
-        row.setUpdatedAt(value.updatedAt()); row.setSeq(value.seq()); row.setNamed(value.named());
-        if (service.findById(value.id()) == null) service.create(row);
-        else service.update(row);
+        try (Connection connection = open();
+                PreparedStatement write = connection.prepareStatement("""
+                        INSERT INTO thread_catalog(id,title,created_at,updated_at,seq,named) VALUES(?,?,?,?,?,?)
+                        ON CONFLICT(id) DO UPDATE SET
+                          title=excluded.title,
+                          created_at=excluded.created_at,
+                          updated_at=excluded.updated_at,
+                          seq=excluded.seq,
+                          named=excluded.named
+                        """)) {
+            write.setString(1, value.id());
+            write.setString(2, value.title());
+            write.setLong(3, value.createdAt());
+            write.setLong(4, value.updatedAt());
+            write.setLong(5, value.seq());
+            write.setInt(6, value.named() ? 1 : 0);
+            write.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("无法保存会话目录", error);
+        }
     }
 
-    private static Summary summary(ThreadCatalogBean row) {
-        return new Summary(row.getId(), row.getTitle(), row.getCreatedAt(), row.getUpdatedAt(),
-                row.getSeq(), Boolean.TRUE.equals(row.getNamed()));
+    private static Summary summary(ResultSet rows) throws SQLException {
+        return new Summary(rows.getString("id"), rows.getString("title"), rows.getLong("created_at"),
+                rows.getLong("updated_at"), rows.getLong("seq"), rows.getInt("named") != 0);
     }
 
     public static String title(String text) {

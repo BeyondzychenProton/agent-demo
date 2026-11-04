@@ -82,6 +82,11 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.50.3.0</version>
+        </dependency>
         <!-- 密码采用 BCrypt 单向哈希存储，不保存明文 -->
         <dependency>
             <groupId>org.springframework.security</groupId>
