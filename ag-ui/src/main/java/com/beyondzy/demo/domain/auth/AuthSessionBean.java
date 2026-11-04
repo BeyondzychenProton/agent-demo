@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.beyondzy.demo.domain.user.BaseAuditBean;
+import java.time.LocalDateTime;
 
 /** 登录会话持久化模型。对应表：auth_session。 */
 @TableName("auth_session")
@@ -12,8 +13,8 @@ public class AuthSessionBean extends BaseAuditBean {
     private Long id;
     private Long userId;
     private String tokenHash;
-    private Long expiresAt;
-    private Long renewedAt;
+    private LocalDateTime expiresAt;
+    private LocalDateTime renewedAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -21,8 +22,8 @@ public class AuthSessionBean extends BaseAuditBean {
     public void setUserId(Long userId) { this.userId = userId; }
     public String getTokenHash() { return tokenHash; }
     public void setTokenHash(String tokenHash) { this.tokenHash = tokenHash; }
-    public Long getExpiresAt() { return expiresAt; }
-    public void setExpiresAt(Long expiresAt) { this.expiresAt = expiresAt; }
-    public Long getRenewedAt() { return renewedAt; }
-    public void setRenewedAt(Long renewedAt) { this.renewedAt = renewedAt; }
+    public LocalDateTime getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
+    public LocalDateTime getRenewedAt() { return renewedAt; }
+    public void setRenewedAt(LocalDateTime renewedAt) { this.renewedAt = renewedAt; }
 }

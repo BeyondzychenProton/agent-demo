@@ -1,6 +1,7 @@
 package com.beyondzy.demo.domain.readmodel;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import java.time.LocalDateTime;
 
 /** 读模型水位与恢复检查点。对应表：rm_head。 */
 @TableName("rm_head")
@@ -9,7 +10,7 @@ public class ReadModelHeadBean {
     private Long revision;
     private Long execSeq;
     private Long inboxSeq;
-    private Long updatedAt;
+    private LocalDateTime gmtModified;
     private String leaseTag;
     private String checkpoint;
     private String control;
@@ -21,8 +22,8 @@ public class ReadModelHeadBean {
     public void setExecSeq(Long execSeq) { this.execSeq = execSeq; }
     public Long getInboxSeq() { return inboxSeq; }
     public void setInboxSeq(Long inboxSeq) { this.inboxSeq = inboxSeq; }
-    public Long getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
+    public LocalDateTime getGmtModified() { return gmtModified; }
+    public void setGmtModified(LocalDateTime gmtModified) { this.gmtModified = gmtModified; }
     public String getLeaseTag() { return leaseTag; }
     public void setLeaseTag(String leaseTag) { this.leaseTag = leaseTag; }
     public String getCheckpoint() { return checkpoint; }

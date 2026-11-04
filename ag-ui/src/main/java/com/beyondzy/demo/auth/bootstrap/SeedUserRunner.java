@@ -39,13 +39,13 @@ public class SeedUserRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS auth_session (
-                    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT UNSIGNED NOT NULL,
                     token_hash CHAR(64) NOT NULL,
-                    expires_at BIGINT NOT NULL,
-                    renewed_at BIGINT NOT NULL,
-                    created_at BIGINT NOT NULL,
-                    updated_at BIGINT NOT NULL,
+                    expires_at DATETIME(3) NOT NULL,
+                    renewed_at DATETIME(3) NOT NULL,
+                    gmt_create DATETIME(3) NOT NULL,
+                    gmt_modified DATETIME(3) NOT NULL,
                     UNIQUE KEY uk_auth_session_token_hash (token_hash),
                     KEY idx_auth_session_user (user_id),
                     KEY idx_auth_session_expires (expires_at)

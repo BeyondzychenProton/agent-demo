@@ -5,6 +5,7 @@ import com.beyondzy.demo.domain.readmodel.ReadModelContentBlockBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelItemPayloadBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelStaleItemBean;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -20,11 +21,11 @@ import org.apache.ibatis.annotations.Update;
 public interface ReadModelMapper {
 
     /** 读取会话水位与检查点。 */
-    @Select("SELECT generation, revision, exec_seq, inbox_seq, updated_at, lease_tag, checkpoint, control "
+    @Select("SELECT generation, revision, exec_seq, inbox_seq, gmt_modified, lease_tag, checkpoint, control "
             + "FROM rm_head WHERE thread=#{thread}")
     @Results({@Result(column="generation",property="generation"), @Result(column="revision",property="revision"),
             @Result(column="exec_seq",property="execSeq"), @Result(column="inbox_seq",property="inboxSeq"),
-            @Result(column="updated_at",property="updatedAt"), @Result(column="lease_tag",property="leaseTag"),
+            @Result(column="gmt_modified",property="gmtModified"), @Result(column="lease_tag",property="leaseTag"),
             @Result(column="checkpoint",property="checkpoint"), @Result(column="control",property="control")})
     ReadModelHeadBean findHead(@Param("thread") String thread);
 
@@ -94,67 +95,78 @@ public interface ReadModelMapper {
 
     /** 查找可清理的过期旧版本条目。 */
     @Select("SELECT old.thread, old.id, old.revision FROM rm_item old "
-            + "WHERE old.until_revision IS NOT NULL AND old.created_at<#{changeTtlCutoff} "
+            + "WHERE old.until_revision IS NOT NULL AND old.gmt_create<#{changeTtlCutoff} "
             + "AND NOT EXISTS(SELECT 1 FROM rm_change c WHERE c.thread=old.thread AND c.revision=old.revision) "
             + "AND NOT EXISTS(SELECT 1 FROM rm_item newer WHERE newer.thread=old.thread AND newer.id=old.id "
-            + "AND newer.revision>=old.until_revision AND newer.created_at>=#{snapshotTtlCutoff}) LIMIT 1000")
+            + "AND newer.revision>=old.until_revision AND newer.gmt_create>=#{snapshotTtlCutoff}) LIMIT 1000")
     @Results({@Result(column = "thread", property = "thread"), @Result(column = "id", property = "id"),
             @Result(column = "revision", property = "revision")})
-    List<ReadModelStaleItemBean> findStaleItems(@Param("changeTtlCutoff") long changeTtlCutoff,
-                                                @Param("snapshotTtlCutoff") long snapshotTtlCutoff);
+    List<ReadModelStaleItemBean> findStaleItems(@Param("changeTtlCutoff") LocalDateTime changeTtlCutoff,
+                                                @Param("snapshotTtlCutoff") LocalDateTime snapshotTtlCutoff);
 
     /** 幂等写入/更新原始条目。 */
-    @Insert("INSERT INTO rm_raw(thread, id, payload) VALUES(#{thread}, #{id}, #{payload}) "
-            + "ON DUPLICATE KEY UPDATE payload=VALUES(payload)")
-    int upsertRaw(@Param("thread") String thread, @Param("id") String id, @Param("payload") String payload);
+    @Insert("INSERT INTO rm_raw(thread, id, payload, gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{id}, #{payload}, #{now}, #{now}) "
+            + "ON DUPLICATE KEY UPDATE payload=VALUES(payload), gmt_modified=VALUES(gmt_modified)")
+    int upsertRaw(@Param("thread") String thread, @Param("id") String id, @Param("payload") String payload,
+                  @Param("now") LocalDateTime now);
 
     /** 关闭当前打开的条目版本（设置 until_revision）。 */
-    @Update("UPDATE rm_item SET until_revision=#{untilRevision} WHERE thread=#{thread} AND id=#{id} AND until_revision IS NULL")
+    @Update("UPDATE rm_item SET until_revision=#{untilRevision}, gmt_modified=#{now} "
+            + "WHERE thread=#{thread} AND id=#{id} AND until_revision IS NULL")
     int closeItemVersion(@Param("thread") String thread, @Param("id") String id,
-                         @Param("untilRevision") long untilRevision);
+                         @Param("untilRevision") long untilRevision, @Param("now") LocalDateTime now);
 
     /** 插入新的条目版本（until_revision 为空表示当前打开）。 */
-    @Insert("INSERT INTO rm_item(thread, id, revision, until_revision, order_key, payload, created_at) "
-            + "VALUES(#{thread}, #{id}, #{revision}, NULL, #{orderKey}, #{payload}, #{createdAt})")
+    @Insert("INSERT INTO rm_item(thread, id, revision, until_revision, order_key, payload, gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{id}, #{revision}, NULL, #{orderKey}, #{payload}, #{now}, #{now})")
     int insertItem(@Param("thread") String thread, @Param("id") String id, @Param("revision") long revision,
                    @Param("orderKey") long orderKey, @Param("payload") String payload,
-                   @Param("createdAt") long createdAt);
+                   @Param("now") LocalDateTime now);
 
     /** 插入一条变更记录。 */
-    @Insert("INSERT INTO rm_change(thread, revision, item_id, created_at) "
-            + "VALUES(#{thread}, #{revision}, #{itemId}, #{createdAt})")
+    @Insert("INSERT INTO rm_change(thread, revision, item_id, gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{revision}, #{itemId}, #{now}, #{now})")
     int insertChange(@Param("thread") String thread, @Param("revision") long revision,
-                     @Param("itemId") String itemId, @Param("createdAt") long createdAt);
+                     @Param("itemId") String itemId, @Param("now") LocalDateTime now);
 
     /** 删除指定条目的 pending 索引。 */
     @Delete("DELETE FROM rm_pending WHERE thread=#{thread} AND id=#{id}")
     int deletePendingItem(@Param("thread") String thread, @Param("id") String id);
 
     /** 插入 pending 索引行。 */
-    @Insert("INSERT INTO rm_pending(thread, id, order_key) VALUES(#{thread}, #{id}, #{orderKey})")
-    int insertPending(@Param("thread") String thread, @Param("id") String id, @Param("orderKey") long orderKey);
+    @Insert("INSERT INTO rm_pending(thread, id, order_key, gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{id}, #{orderKey}, #{now}, #{now})")
+    int insertPending(@Param("thread") String thread, @Param("id") String id, @Param("orderKey") long orderKey,
+                      @Param("now") LocalDateTime now);
 
     /** 幂等写入/更新会话水位。 */
-    @Insert("INSERT INTO rm_head(thread, generation, revision, exec_seq, inbox_seq, updated_at, lease_tag, checkpoint, control) "
-            + "VALUES(#{thread}, #{generation}, #{revision}, #{execSeq}, #{inboxSeq}, #{updatedAt}, #{leaseTag}, #{checkpoint}, #{control}) "
+    @Insert("INSERT INTO rm_head(thread, generation, revision, exec_seq, inbox_seq, lease_tag, checkpoint, control, "
+            + "gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{generation}, #{revision}, #{execSeq}, #{inboxSeq}, #{leaseTag}, #{checkpoint}, "
+            + "#{control}, #{now}, #{now}) "
             + "ON DUPLICATE KEY UPDATE revision=VALUES(revision), exec_seq=VALUES(exec_seq), inbox_seq=VALUES(inbox_seq), "
-            + "updated_at=VALUES(updated_at), lease_tag=VALUES(lease_tag), checkpoint=VALUES(checkpoint), control=VALUES(control)")
+            + "lease_tag=VALUES(lease_tag), checkpoint=VALUES(checkpoint), control=VALUES(control), "
+            + "gmt_modified=VALUES(gmt_modified)")
     int upsertHead(@Param("thread") String thread, @Param("generation") String generation,
                    @Param("revision") long revision, @Param("execSeq") long execSeq,
-                   @Param("inboxSeq") long inboxSeq, @Param("updatedAt") long updatedAt,
+                   @Param("inboxSeq") long inboxSeq, @Param("now") LocalDateTime now,
                    @Param("leaseTag") String leaseTag, @Param("checkpoint") String checkpoint,
                    @Param("control") String control);
 
     /** 幂等插入内容块正文（按 hash 去重）。 */
-    @Insert("INSERT IGNORE INTO rm_block(hash, body) VALUES(#{hash}, #{body})")
-    int insertBlockIgnore(@Param("hash") String hash, @Param("body") String body);
+    @Insert("INSERT IGNORE INTO rm_block(hash, body, gmt_create, gmt_modified) "
+            + "VALUES(#{hash}, #{body}, #{now}, #{now})")
+    int insertBlockIgnore(@Param("hash") String hash, @Param("body") String body,
+                          @Param("now") LocalDateTime now);
 
     /** 插入条目字段到内容块的映射。 */
-    @Insert("INSERT INTO rm_content(thread, id, revision, field, block_no, hash, encoding) "
-            + "VALUES(#{thread}, #{id}, #{revision}, #{field}, #{blockNo}, #{hash}, #{encoding})")
+    @Insert("INSERT INTO rm_content(thread, id, revision, field, block_no, hash, encoding, gmt_create, gmt_modified) "
+            + "VALUES(#{thread}, #{id}, #{revision}, #{field}, #{blockNo}, #{hash}, #{encoding}, #{now}, #{now})")
     int insertContent(@Param("thread") String thread, @Param("id") String id, @Param("revision") long revision,
                       @Param("field") String field, @Param("blockNo") int blockNo,
-                      @Param("hash") String hash, @Param("encoding") String encoding);
+                      @Param("hash") String hash, @Param("encoding") String encoding,
+                      @Param("now") LocalDateTime now);
 
     /** 按 thread 清空内容映射（invalidate）。 */
     @Delete("DELETE FROM rm_content WHERE thread=#{thread}")
@@ -181,8 +193,8 @@ public interface ReadModelMapper {
     int deleteHead(@Param("thread") String thread);
 
     /** 删除早于截止时间的变更记录（cleanup）。 */
-    @Delete("DELETE FROM rm_change WHERE created_at<#{cutoff}")
-    int deleteChangesBefore(@Param("cutoff") long cutoff);
+    @Delete("DELETE FROM rm_change WHERE gmt_create<#{cutoff}")
+    int deleteChangesBefore(@Param("cutoff") LocalDateTime cutoff);
 
     /** 删除指定条目的某个历史版本（cleanup）。 */
     @Delete("DELETE FROM rm_item WHERE thread=#{thread} AND id=#{id} AND revision=#{revision}")

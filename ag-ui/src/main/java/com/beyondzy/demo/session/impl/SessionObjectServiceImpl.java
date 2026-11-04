@@ -3,7 +3,9 @@ package com.beyondzy.demo.session.impl;
 import com.beyondzy.demo.domain.session.SessionObjectBean;
 import com.beyondzy.demo.mapper.session.SessionObjectMapper;
 import com.beyondzy.demo.session.SessionObjectService;
+import com.beyondzy.demo.support.DbTimes;
 import io.agentscope.core.session.AtomicSessionStorage;
+import java.time.LocalDateTime;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +26,7 @@ public class SessionObjectServiceImpl implements SessionObjectService {
 
     @Override
     public boolean compareAndSet(long userId, String objectPath, long expectedVersion, byte[] payload) {
-        long now = System.currentTimeMillis();
+        LocalDateTime now = DbTimes.now();
         if (expectedVersion == 0) {
             try {
                 return mapper.insertFirstVersion(userId, objectPath, payload, now) == 1;

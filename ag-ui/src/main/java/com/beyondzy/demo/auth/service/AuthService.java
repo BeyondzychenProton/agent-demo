@@ -1,7 +1,9 @@
 package com.beyondzy.demo.auth.service;
 
 import com.beyondzy.demo.domain.user.UserBean;
+import com.beyondzy.demo.support.DbTimes;
 import com.beyondzy.demo.user.UserService;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -34,12 +36,13 @@ public class AuthService {
         sessions.deleteByRawToken(rawToken);
     }
 
-    public Map<String, Object> toUserBody(UserBean user, Long expiresAt, String rawToken) {
+    public Map<String, Object> toUserBody(UserBean user, LocalDateTime expiresAt, String rawToken) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", user.getId());
         body.put("name", user.getName());
         body.put("phone", user.getPhone());
-        if (expiresAt != null) body.put("expiresAt", expiresAt);
+        // 前端仍消费毫秒时间戳；库内已是 DATETIME(3)。
+        if (expiresAt != null) body.put("expiresAt", DbTimes.toEpochMilli(expiresAt));
         if (rawToken != null) body.put("token", rawToken);
         return body;
     }

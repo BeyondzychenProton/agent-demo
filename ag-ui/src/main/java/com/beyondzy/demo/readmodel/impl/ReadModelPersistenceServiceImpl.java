@@ -8,6 +8,8 @@ import com.beyondzy.demo.domain.readmodel.ReadModelStaleItemBean;
 import com.beyondzy.demo.mapper.readmodel.ReadModelMapper;
 import com.beyondzy.demo.readmodel.CommitBatch;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.support.DbTimes;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,26 +82,26 @@ public class ReadModelPersistenceServiceImpl implements ReadModelPersistenceServ
     public void commit(CommitBatch batch) {
         CommitBatch.HeadWrite head = batch.head();
         String thread = head.thread();
-        long createdAt = head.updatedAt();
+        LocalDateTime now = DbTimes.ofEpochMilli(head.updatedAt());
         for (CommitBatch.RawWrite raw : batch.raws()) {
-            mapper.upsertRaw(thread, raw.id(), raw.payload());
+            mapper.upsertRaw(thread, raw.id(), raw.payload(), now);
         }
         for (CommitBatch.ItemWrite item : batch.items()) {
-            mapper.closeItemVersion(thread, item.id(), item.revision());
-            mapper.insertItem(thread, item.id(), item.revision(), item.orderKey(), item.payload(), createdAt);
-            mapper.insertChange(thread, item.revision(), item.id(), createdAt);
+            mapper.closeItemVersion(thread, item.id(), item.revision(), now);
+            mapper.insertItem(thread, item.id(), item.revision(), item.orderKey(), item.payload(), now);
+            mapper.insertChange(thread, item.revision(), item.id(), now);
             mapper.deletePendingItem(thread, item.id());
             if (item.pendingOrderKeyOrNull() != null) {
-                mapper.insertPending(thread, item.id(), item.pendingOrderKeyOrNull());
+                mapper.insertPending(thread, item.id(), item.pendingOrderKeyOrNull(), now);
             }
             for (CommitBatch.BlockWrite block : item.blocks()) {
-                mapper.insertBlockIgnore(block.hash(), block.body());
+                mapper.insertBlockIgnore(block.hash(), block.body(), now);
                 mapper.insertContent(thread, item.id(), item.revision(), block.field(),
-                        block.blockNo(), block.hash(), block.encoding());
+                        block.blockNo(), block.hash(), block.encoding(), now);
             }
         }
         mapper.upsertHead(thread, head.generation(), head.revision(), head.execSeq(), head.inboxSeq(),
-                head.updatedAt(), head.leaseTag(), head.checkpoint(), head.control());
+                now, head.leaseTag(), head.checkpoint(), head.control());
     }
 
     @Override
@@ -133,8 +135,10 @@ public class ReadModelPersistenceServiceImpl implements ReadModelPersistenceServ
     @Override
     @Transactional
     public void cleanup(long changeTtlCutoff, long snapshotTtlCutoff) {
-        mapper.deleteChangesBefore(changeTtlCutoff);
-        List<ReadModelStaleItemBean> stale = mapper.findStaleItems(changeTtlCutoff, snapshotTtlCutoff);
+        LocalDateTime changeCutoff = DbTimes.ofEpochMilli(changeTtlCutoff);
+        LocalDateTime snapshotCutoff = DbTimes.ofEpochMilli(snapshotTtlCutoff);
+        mapper.deleteChangesBefore(changeCutoff);
+        List<ReadModelStaleItemBean> stale = mapper.findStaleItems(changeCutoff, snapshotCutoff);
         for (ReadModelStaleItemBean item : stale) {
             mapper.deleteItemVersion(item.getThread(), item.getId(), item.getRevision());
         }

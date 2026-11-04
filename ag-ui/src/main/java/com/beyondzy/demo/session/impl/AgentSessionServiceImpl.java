@@ -2,6 +2,7 @@ package com.beyondzy.demo.session.impl;
 
 import com.beyondzy.demo.mapper.session.AgentSessionMapper;
 import com.beyondzy.demo.session.AgentSessionService;
+import com.beyondzy.demo.support.DbTimes;
 import io.agentscope.core.session.SessionKey;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
 
     @Override
     public void register(long userId, String agentId, String sessionId) {
-        mapper.insertIfAbsent(userId, agentId, sessionId, System.currentTimeMillis());
+        mapper.insertIfAbsent(userId, agentId, sessionId, DbTimes.now());
     }
 
     @Override

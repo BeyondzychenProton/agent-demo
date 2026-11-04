@@ -12,6 +12,7 @@ public class UserBean extends BaseAuditBean {
     private String name;
     private String phone;
     private String passwordHash;
+    private Integer isDeleted;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -21,4 +22,6 @@ public class UserBean extends BaseAuditBean {
     public void setPhone(String phone) { this.phone = phone; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public Integer getIsDeleted() { return isDeleted; }
+    public void setIsDeleted(Integer isDeleted) { this.isDeleted = isDeleted; }
 }

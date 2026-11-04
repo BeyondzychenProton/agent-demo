@@ -3,7 +3,9 @@ package com.beyondzy.demo.user.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.mapper.user.UserMapper;
+import com.beyondzy.demo.support.DbTimes;
 import com.beyondzy.demo.user.UserService;
+import java.time.LocalDateTime;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,12 +42,18 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserBean findByPhone(String phone) {
-        return mapper.selectOne(Wrappers.<UserBean>lambdaQuery().eq(UserBean::getPhone, phone));
+        return mapper.selectOne(Wrappers.<UserBean>lambdaQuery()
+                .eq(UserBean::getPhone, phone)
+                .eq(UserBean::getIsDeleted, 0));
     }
 
     @Override
     public UserBean findById(long id) {
-        return mapper.selectById(id);
+        UserBean user = mapper.selectById(id);
+        if (user == null || (user.getIsDeleted() != null && user.getIsDeleted() != 0)) {
+            return null;
+        }
+        return user;
     }
 
     @Override
@@ -79,9 +87,10 @@ public class UserServiceImpl implements UserService {
             mapper.updateById(byId);
             return byId;
         }
-        long now = System.currentTimeMillis();
+        LocalDateTime now = DbTimes.now();
         jdbc.update(
-                "INSERT INTO app_user(id, name, phone, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO app_user(id, name, phone, password_hash, is_deleted, gmt_create, gmt_modified) "
+                        + "VALUES (?,?,?,?,0,?,?)",
                 preferredId, name, phone, passwordEncoder.encode(rawPassword), now, now);
         return mapper.selectById(preferredId);
     }

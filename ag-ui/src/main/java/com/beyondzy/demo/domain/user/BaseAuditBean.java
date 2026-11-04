@@ -2,16 +2,17 @@ package com.beyondzy.demo.domain.user;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
+import java.time.LocalDateTime;
 
-/** 用户等业务表共用的审计字段。 */
+/** 用户等业务表共用的审计时间字段。 */
 public abstract class BaseAuditBean {
-    @TableField(value = "created_at", fill = FieldFill.INSERT)
-    private Long createdAt;
-    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
-    private Long updatedAt;
+    @TableField(value = "gmt_create", fill = FieldFill.INSERT)
+    private LocalDateTime gmtCreate;
+    @TableField(value = "gmt_modified", fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime gmtModified;
 
-    public Long getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
-    public Long getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
+    public LocalDateTime getGmtCreate() { return gmtCreate; }
+    public void setGmtCreate(LocalDateTime gmtCreate) { this.gmtCreate = gmtCreate; }
+    public LocalDateTime getGmtModified() { return gmtModified; }
+    public void setGmtModified(LocalDateTime gmtModified) { this.gmtModified = gmtModified; }
 }

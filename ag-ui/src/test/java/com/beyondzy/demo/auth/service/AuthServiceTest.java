@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.beyondzy.demo.domain.auth.AuthSessionBean;
 import com.beyondzy.demo.domain.user.UserBean;
+import com.beyondzy.demo.support.DbTimes;
 import com.beyondzy.demo.user.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,7 +38,7 @@ class AuthServiceTest {
         when(users.matchesPassword(user, "13636528157")).thenReturn(true);
         AuthSessionBean row = new AuthSessionBean();
         row.setId(8L);
-        row.setExpiresAt(System.currentTimeMillis() + 1000);
+        row.setExpiresAt(DbTimes.now().plusSeconds(1));
         when(sessions.create(1L)).thenReturn(new AuthSessionService.CreatedSession("raw-token", row));
         AuthService auth = new AuthService(users, sessions);
         var result = auth.login("13636528157", "13636528157");

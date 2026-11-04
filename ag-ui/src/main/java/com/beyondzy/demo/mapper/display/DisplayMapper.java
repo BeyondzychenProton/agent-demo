@@ -3,6 +3,7 @@ package com.beyondzy.demo.mapper.display;
 import com.beyondzy.demo.domain.display.DisplayMessageBean;
 import com.beyondzy.demo.domain.display.DisplayTurnBean;
 import com.beyondzy.demo.domain.display.DisplayViewBean;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -39,30 +40,40 @@ public interface DisplayMapper {
     int deleteTurns(@Param("threadId") String threadId);
 
     /** 插入一条快照消息。 */
-    @Insert("INSERT INTO display_message(thread_id,ordinal,message_id,role,content) VALUES(#{threadId},#{ordinal},#{messageId},#{role},#{content})")
+    @Insert("INSERT INTO display_message(thread_id,ordinal,message_id,role,content,gmt_create,gmt_modified) "
+            + "VALUES(#{threadId},#{ordinal},#{messageId},#{role},#{content},#{now},#{now})")
     int insertMessage(@Param("threadId") String threadId, @Param("ordinal") int ordinal,
-                      @Param("messageId") String messageId, @Param("role") String role, @Param("content") String content);
+                      @Param("messageId") String messageId, @Param("role") String role,
+                      @Param("content") String content, @Param("now") LocalDateTime now);
 
     /** 插入一条快照轮次。 */
-    @Insert("INSERT INTO display_turn(thread_id,ordinal,run_id,status) VALUES(#{threadId},#{ordinal},#{runId},#{status})")
+    @Insert("INSERT INTO display_turn(thread_id,ordinal,run_id,status,gmt_create,gmt_modified) "
+            + "VALUES(#{threadId},#{ordinal},#{runId},#{status},#{now},#{now})")
     int insertTurn(@Param("threadId") String threadId, @Param("ordinal") int ordinal,
-                   @Param("runId") String runId, @Param("status") String status);
+                   @Param("runId") String runId, @Param("status") String status,
+                   @Param("now") LocalDateTime now);
 
     /** 幂等写入/更新展示快照水位。 */
-    @Insert("INSERT INTO display_head(thread_id,seq) VALUES(#{threadId},#{seq}) ON DUPLICATE KEY UPDATE seq=VALUES(seq)")
-    int saveSnapshotSeq(@Param("threadId") String threadId, @Param("seq") long seq);
+    @Insert("INSERT INTO display_head(thread_id,seq,gmt_create,gmt_modified) VALUES(#{threadId},#{seq},#{now},#{now}) "
+            + "ON DUPLICATE KEY UPDATE seq=VALUES(seq), gmt_modified=VALUES(gmt_modified)")
+    int saveSnapshotSeq(@Param("threadId") String threadId, @Param("seq") long seq,
+                        @Param("now") LocalDateTime now);
 
     /** 读取指定 seq 的完整视图缓存。 */
-    @Select("SELECT format, has_interactions, payload FROM display_view WHERE thread_id=#{threadId} AND seq=#{seq}")
-    @Results({@Result(column="format", property="format"), @Result(column="has_interactions", property="hasInteractions"),
+    @Select("SELECT format, is_interactive, payload FROM display_view WHERE thread_id=#{threadId} AND seq=#{seq}")
+    @Results({@Result(column="format", property="format"),
+            @Result(column="is_interactive", property="hasInteractions"),
             @Result(column="payload", property="payload")})
     DisplayViewBean findView(@Param("threadId") String threadId, @Param("seq") long seq);
 
     /** 幂等保存视图缓存；仅当新 seq 不落后时覆盖 payload/元数据。 */
-    @Insert("INSERT INTO display_view(thread_id,seq,format,has_interactions,payload) VALUES(#{threadId},#{seq},#{format},#{hasInteractions},#{payload}) "
+    @Insert("INSERT INTO display_view(thread_id,seq,format,is_interactive,payload,gmt_create,gmt_modified) "
+            + "VALUES(#{threadId},#{seq},#{format},#{hasInteractions},#{payload},#{now},#{now}) "
             + "ON DUPLICATE KEY UPDATE payload=IF(VALUES(seq)>=seq,VALUES(payload),payload), "
-            + "has_interactions=IF(VALUES(seq)>=seq,VALUES(has_interactions),has_interactions), "
-            + "format=IF(VALUES(seq)>=seq,VALUES(format),format), seq=GREATEST(seq,VALUES(seq))")
+            + "is_interactive=IF(VALUES(seq)>=seq,VALUES(is_interactive),is_interactive), "
+            + "format=IF(VALUES(seq)>=seq,VALUES(format),format), seq=GREATEST(seq,VALUES(seq)), "
+            + "gmt_modified=IF(VALUES(seq)>=seq,VALUES(gmt_modified),gmt_modified)")
     int saveView(@Param("threadId") String threadId, @Param("seq") long seq, @Param("format") int format,
-                 @Param("hasInteractions") boolean hasInteractions, @Param("payload") String payload);
+                 @Param("hasInteractions") boolean hasInteractions, @Param("payload") String payload,
+                 @Param("now") LocalDateTime now);
 }

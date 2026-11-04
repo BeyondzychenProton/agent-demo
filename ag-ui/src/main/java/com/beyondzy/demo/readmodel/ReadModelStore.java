@@ -6,6 +6,7 @@ import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
 import com.beyondzy.demo.readmodel.CommitBatch;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.readmodel.ChatItems;
+import com.beyondzy.demo.support.DbTimes;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -58,7 +59,8 @@ public final class ReadModelStore implements AutoCloseable {
     public synchronized State state(String thread) {
         ReadModelHeadBean row = persistence.state(thread);
         return row == null ? null : new State(row.getGeneration(), row.getRevision(), row.getExecSeq(),
-                row.getInboxSeq(), row.getUpdatedAt(), row.getLeaseTag(), row.getCheckpoint(), row.getControl());
+                row.getInboxSeq(), DbTimes.toEpochMilli(row.getGmtModified()), row.getLeaseTag(),
+                row.getCheckpoint(), row.getControl());
     }
 
     /** 仅清理单个会话的过期派生格式，权威 SessionLog 与 Inbox 完全不受影响。 */

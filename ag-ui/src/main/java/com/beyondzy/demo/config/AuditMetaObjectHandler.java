@@ -1,6 +1,8 @@
 package com.beyondzy.demo.config;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
+import com.beyondzy.demo.support.DbTimes;
+import java.time.LocalDateTime;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.stereotype.Component;
 
@@ -9,13 +11,16 @@ import org.springframework.stereotype.Component;
 public class AuditMetaObjectHandler implements MetaObjectHandler {
     @Override
     public void insertFill(MetaObject metaObject) {
-        long now = System.currentTimeMillis();
-        strictInsertFill(metaObject, "createdAt", Long.class, now);
-        strictInsertFill(metaObject, "updatedAt", Long.class, now);
+        LocalDateTime now = DbTimes.now();
+        strictInsertFill(metaObject, "gmtCreate", LocalDateTime.class, now);
+        strictInsertFill(metaObject, "gmtModified", LocalDateTime.class, now);
+        if (metaObject.hasSetter("isDeleted")) {
+            strictInsertFill(metaObject, "isDeleted", Integer.class, 0);
+        }
     }
 
     @Override
     public void updateFill(MetaObject metaObject) {
-        strictUpdateFill(metaObject, "updatedAt", Long.class, System.currentTimeMillis());
+        strictUpdateFill(metaObject, "gmtModified", LocalDateTime.class, DbTimes.now());
     }
 }

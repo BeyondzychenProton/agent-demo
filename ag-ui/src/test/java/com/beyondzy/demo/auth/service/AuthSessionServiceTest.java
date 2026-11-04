@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,9 +16,12 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.beyondzy.demo.auth.cookie.TokenHasher;
 import com.beyondzy.demo.domain.auth.AuthSessionBean;
 import com.beyondzy.demo.mapper.auth.AuthSessionMapper;
+import com.beyondzy.demo.support.DbTimes;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 
 class AuthSessionServiceTest {
     private AuthSessionMapper mapper;
@@ -41,7 +43,7 @@ class AuthSessionServiceTest {
         var created = service.create(1L);
         assertNotNull(created.rawToken());
         assertEquals(TokenHasher.sha256(created.rawToken()), created.row().getTokenHash());
-        assertTrue(created.row().getExpiresAt() > System.currentTimeMillis());
+        assertTrue(created.row().getExpiresAt().isAfter(DbTimes.now()));
     }
 
     @Test
@@ -50,16 +52,16 @@ class AuthSessionServiceTest {
         row.setId(1L);
         row.setUserId(1L);
         row.setTokenHash(TokenHasher.sha256("raw"));
-        row.setExpiresAt(System.currentTimeMillis() - 1000);
-        row.setRenewedAt(System.currentTimeMillis() - 1000);
+        row.setExpiresAt(DbTimes.now().minusSeconds(1));
+        row.setRenewedAt(DbTimes.now().minusSeconds(1));
         when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
         assertNull(service.findValidByRawToken("raw"));
     }
 
     @Test
     void renewOnlyAfterIntervalAndDoesNotExtendExpiry() {
-        long expires = System.currentTimeMillis() + Duration.ofDays(5).toMillis();
-        long renewedAt = System.currentTimeMillis() - Duration.ofDays(2).toMillis();
+        LocalDateTime expires = DbTimes.now().plus(Duration.ofDays(5));
+        LocalDateTime renewedAt = DbTimes.now().minus(Duration.ofDays(2));
         AuthSessionBean row = new AuthSessionBean();
         row.setId(3L);
         row.setUserId(1L);
@@ -67,36 +69,37 @@ class AuthSessionServiceTest {
         row.setExpiresAt(expires);
         row.setRenewedAt(renewedAt);
         when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
-        when(mapper.updateRenewedAt(eq(3L), anyLong(), anyLong())).thenReturn(1);
+        when(mapper.updateRenewedAt(eq(3L), any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(1);
 
         var validated = service.validateAndMaybeRenew("raw");
         assertNotNull(validated);
         assertTrue(validated.renewed());
         assertEquals(expires, validated.row().getExpiresAt());
-        verify(mapper).updateRenewedAt(eq(3L), anyLong(), anyLong());
+        verify(mapper).updateRenewedAt(eq(3L), any(LocalDateTime.class), any(LocalDateTime.class));
     }
 
     @Test
     void skipRenewWithinInterval() {
-        long now = System.currentTimeMillis();
+        LocalDateTime now = DbTimes.now();
         AuthSessionBean row = new AuthSessionBean();
         row.setId(4L);
         row.setUserId(1L);
         row.setTokenHash(TokenHasher.sha256("raw"));
-        row.setExpiresAt(now + Duration.ofDays(6).toMillis());
-        row.setRenewedAt(now - Duration.ofHours(1).toMillis());
+        row.setExpiresAt(now.plus(Duration.ofDays(6)));
+        row.setRenewedAt(now.minus(Duration.ofHours(1)));
         when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
 
         var validated = service.validateAndMaybeRenew("raw");
         assertNotNull(validated);
         assertFalse(validated.renewed());
-        verify(mapper, never()).updateRenewedAt(anyLong(), anyLong(), anyLong());
+        verify(mapper, never()).updateRenewedAt(
+                ArgumentMatchers.anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
     }
 
     @Test
     void remainingMaxAgeUsesAbsoluteExpiry() {
         AuthSessionBean row = new AuthSessionBean();
-        row.setExpiresAt(System.currentTimeMillis() + 90_000);
+        row.setExpiresAt(DbTimes.now().plusSeconds(90));
         assertEquals(90, service.remainingMaxAgeSeconds(row));
     }
 }

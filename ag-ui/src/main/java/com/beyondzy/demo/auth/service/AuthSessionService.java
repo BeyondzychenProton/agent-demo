@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.beyondzy.demo.auth.cookie.TokenHasher;
 import com.beyondzy.demo.domain.auth.AuthSessionBean;
 import com.beyondzy.demo.mapper.auth.AuthSessionMapper;
+import com.beyondzy.demo.support.DbTimes;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -32,12 +34,12 @@ public class AuthSessionService {
 
     @Transactional
     public CreatedSession create(long userId) {
-        long now = System.currentTimeMillis();
+        LocalDateTime now = DbTimes.now();
         String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
         AuthSessionBean row = new AuthSessionBean();
         row.setUserId(userId);
         row.setTokenHash(TokenHasher.sha256(rawToken));
-        row.setExpiresAt(now + absoluteTtl.toMillis());
+        row.setExpiresAt(now.plus(absoluteTtl));
         row.setRenewedAt(now);
         mapper.insert(row);
         return new CreatedSession(rawToken, row);
@@ -48,7 +50,7 @@ public class AuthSessionService {
         AuthSessionBean row = mapper.selectOne(Wrappers.<AuthSessionBean>lambdaQuery()
                 .eq(AuthSessionBean::getTokenHash, TokenHasher.sha256(rawToken)));
         if (row == null) return null;
-        if (row.getExpiresAt() == null || row.getExpiresAt() <= System.currentTimeMillis()) return null;
+        if (row.getExpiresAt() == null || !row.getExpiresAt().isAfter(DbTimes.now())) return null;
         return row;
     }
 
@@ -57,13 +59,13 @@ public class AuthSessionService {
     public ValidatedSession validateAndMaybeRenew(String rawToken) {
         AuthSessionBean row = findValidByRawToken(rawToken);
         if (row == null) return null;
-        long now = System.currentTimeMillis();
+        LocalDateTime now = DbTimes.now();
         boolean due = row.getRenewedAt() == null
-                || now - row.getRenewedAt() >= renewInterval.toMillis();
+                || Duration.between(row.getRenewedAt(), now).compareTo(renewInterval) >= 0;
         if (due) {
             mapper.updateRenewedAt(row.getId(), now, now);
             row.setRenewedAt(now);
-            row.setUpdatedAt(now);
+            row.setGmtModified(now);
             return new ValidatedSession(row, true);
         }
         return new ValidatedSession(row, false);
@@ -82,7 +84,7 @@ public class AuthSessionService {
     }
 
     public long remainingMaxAgeSeconds(AuthSessionBean row) {
-        long remainingMs = Math.max(0, row.getExpiresAt() - System.currentTimeMillis());
+        long remainingMs = Math.max(0, DbTimes.toEpochMilli(row.getExpiresAt()) - System.currentTimeMillis());
         return Math.max(1, remainingMs / 1000);
     }
 }
