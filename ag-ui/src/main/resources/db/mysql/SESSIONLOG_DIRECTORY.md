@@ -6,4 +6,4 @@
 
     DROP TABLE IF EXISTS thread_catalog;
 
-账号注册链路在当前应用没有入口，空的 app_user 表及其 MyBatis-Plus 类已移除；用户 ID 仍用于会话命名空间。展示兼容接口继续使用 display_*，当前页面继续使用 rm_*。
+用户表 app_user 及 MyBatis-Plus 持久化层由 V2 建表脚本维护；当前应用尚未提供注册登录接口，用户 ID 仍由配置提供并用于会话命名空间。展示兼容接口继续使用 display_*，当前页面继续使用 rm_*。
