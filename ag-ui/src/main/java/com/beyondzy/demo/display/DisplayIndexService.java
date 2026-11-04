@@ -23,7 +23,7 @@ public interface DisplayIndexService {
     /** 保存或条件更新完整视图缓存。 */
     void saveView(String threadId, long seq, int format, boolean hasInteractions, String payload);
 
-    record Snapshot(long seq, List<DisplayMessageBean> messages, List<DisplayTurnBean> turns) {}
-    record Message(String messageId, String role, String content) {}
-    record Turn(String runId, String status) {}
+    public record Snapshot(long seq, List<DisplayMessageBean> messages, List<DisplayTurnBean> turns) {}
+    public record Message(String messageId, String role, String content) {}
+    public record Turn(String runId, String status) {}
 }

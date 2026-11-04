@@ -1,8 +1,7 @@
 package com.beyondzy.demo.display;
 
-import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.domain.display.DisplayViewBean;
-import com.beyondzy.demo.display.DisplayIndexService;
+import com.beyondzy.demo.readmodel.ThreadView;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -10,22 +9,22 @@ import java.util.List;
 import java.util.Map;
 
 /** 完整基础视图的派生读索引；只保存展示数据，不保存审批授权与执行状态。 */
-final class DisplayViewStore {
+public final class DisplayViewStore {
     private static final int FORMAT = 1;
-    record Saved(long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {}
+    public record Saved(long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {}
     private final DisplayIndexService displayIndex;
 
-    DisplayViewStore(DisplayIndexService displayIndex) {
+    public DisplayViewStore(DisplayIndexService displayIndex) {
         this.displayIndex = displayIndex;
     }
 
     @Deprecated(forRemoval = true)
-    DisplayViewStore(Path workspace) {
+    public DisplayViewStore(Path workspace) {
         throw new UnsupportedOperationException("旧文件型展示视图存储已移除，请注入 MySQL 数据源");
     }
 
     /** 水位和格式均匹配才返回；旧水位不能冒充当前页面。 */
-    synchronized Saved read(String id, long seq) {
+    public synchronized Saved read(String id, long seq) {
         DisplayViewBean row = displayIndex.findView(id, seq);
         if (row == null || row.getFormat() != FORMAT) return null;
         try {
@@ -40,7 +39,7 @@ final class DisplayViewStore {
     }
 
     /** 仅接收基础视图，禁止持久化带实时审批操作权限的装饰结果。 */
-    synchronized void save(String id, long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {
+    public synchronized void save(String id, long seq, boolean hasInteractions, ThreadView.SnapshotResponse view) {
         if (!id.equals(view.threadId()) || view.asOfSeq() != seq || view.activeRun() != null)
             throw new IllegalArgumentException("展示视图水位不匹配或仍在执行");
         for (var item : view.view()) {

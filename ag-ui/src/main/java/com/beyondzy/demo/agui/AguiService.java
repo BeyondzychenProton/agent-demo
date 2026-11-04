@@ -54,7 +54,7 @@ public final class AguiService {
     // ===================== /info：Runtime 能力声明 =====================
 
     /** GET /agui/run/info：CopilotKit 启动时探测后端能力与线程端点。 */
-    Map<String, Object> info() {
+    public Map<String, Object> info() {
         Map<String, Object> agent = new LinkedHashMap<>();
         agent.put("id", AGENT_ID);
         agent.put("name", "Session Chat");
@@ -91,7 +91,7 @@ public final class AguiService {
     // ===================== 线程列表 / 创建 =====================
 
     /** GET /agui/run/threads：从 SessionLog 派生的摘要分页读取线程。 */
-    Map<String, Object> listThreads(int limit, String cursor) {
+    public Map<String, Object> listThreads(int limit, String cursor) {
         ThreadCatalog.Page page = sessions.threads(limit, cursor);
         List<Map<String, Object>> threads = new ArrayList<>();
         for (ThreadCatalog.Summary summary : page.threads()) {
@@ -108,7 +108,7 @@ public final class AguiService {
      * POST /agui/run/threads：新建线程只发一个合法 id，不预建、不落盘；
      * 首次发消息提交时由 SessionLog 惰性创建。
      */
-    Map<String, Object> createThread(Map<String, Object> request) {
+    public Map<String, Object> createThread(Map<String, Object> request) {
         String threadId = newThreadId();
         Map<String, Object> info = threadInfo(threadId);
         if (request != null && request.get("name") instanceof String name && !name.isBlank()) {
@@ -118,7 +118,7 @@ public final class AguiService {
     }
 
     /** PATCH /threads/{id} / archive / delete：最小 demo 不落表，仅回显成功，不删日志。 */
-    Map<String, Object> noopThread(String threadId, Map<String, Object> request) {
+    public Map<String, Object> noopThread(String threadId, Map<String, Object> request) {
         Map<String, Object> info = threadInfo(threadId);
         if (request != null && request.get("name") instanceof String name && !name.isBlank()) {
             info.put("name", name);
@@ -148,7 +148,7 @@ public final class AguiService {
     }
 
     /** GET /threads/{id}/messages：历史消息，供 CopilotKit 直接渲染。 */
-    Map<String, Object> messages(String threadId) {
+    public Map<String, Object> messages(String threadId) {
         List<AguiMessage> list = new ArrayList<>();
         try {
             for (ThreadCatalog.DisplayMessage msg : sessions.display(threadId).messages()) {
@@ -169,7 +169,7 @@ public final class AguiService {
      * POST /agent/{agentId}/connect（SSE）：先回放历史，再续接仍在执行的 Run。
      * 既无活动执行、也无待执行命令时发 RUN_STARTED → MESSAGES_SNAPSHOT → RUN_FINISHED。
      */
-    Flux<ServerSentEvent<String>> connect(String threadId, String runId) {
+    public Flux<ServerSentEvent<String>> connect(String threadId, String runId) {
         // 空 threadId 兜底生成（空线程直接发空握手）
         if (threadId == null || threadId.isBlank()) threadId = newThreadId();
         String rid = (runId == null || runId.isBlank()) ? newRunId() : runId;
@@ -247,7 +247,7 @@ public final class AguiService {
      * POST /agent/{agentId}/run（SSE）：解析用户消息 → 提交给 HarnessAgent →
      * 轮询 committed 日志，把 model/chunk 文本 delta 翻成 TEXT_MESSAGE_*，run/end 收口。
      */
-    Flux<ServerSentEvent<String>> run(String agentId, Map<String, Object> body) {
+    public Flux<ServerSentEvent<String>> run(String agentId, Map<String, Object> body) {
         String threadId = str(body.get("threadId"));
         if (threadId == null || threadId.isBlank()) threadId = newThreadId();
         String runId = str(body.get("runId"));

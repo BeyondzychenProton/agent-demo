@@ -15,14 +15,16 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.session.AgentSession;
 import io.agentscope.core.session.SessionLogStore;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.display.DisplayIndexService;
+import com.beyondzy.demo.display.DisplayViewStore;
 import com.beyondzy.demo.readmodel.ChatHistory;
+import com.beyondzy.demo.readmodel.ProjectionService;
+import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import com.beyondzy.demo.tools.DocSearchTools;
 import com.beyondzy.demo.tools.NoteTools;
 import com.beyondzy.demo.tools.OrderTools;
-import com.beyondzy.demo.display.DisplayIndexService;
-import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -47,9 +49,9 @@ public final class ChatSessions implements AutoCloseable {
     private final String userId;
     private final ThreadCatalog catalog;
     private final DisplayViewStore displayViews;
-    private final com.beyondzy.demo.readmodel.ProjectionService projection;
+    private final ProjectionService projection;
 
-    public com.beyondzy.demo.readmodel.ProjectionService projection() { return projection; }
+    public ProjectionService projection() { return projection; }
     private final java.util.concurrent.atomic.LongAdder viewIndexHits = new java.util.concurrent.atomic.LongAdder();
     private final java.util.concurrent.atomic.LongAdder viewBuilds = new java.util.concurrent.atomic.LongAdder();
 
@@ -148,7 +150,7 @@ public final class ChatSessions implements AutoCloseable {
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());
-        projection = new com.beyondzy.demo.readmodel.ProjectionService(this::log, readModelPersistence);
+        projection = new ProjectionService(this::log, readModelPersistence);
     }
 
     /**
