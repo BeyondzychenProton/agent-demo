@@ -14,7 +14,6 @@ import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
 
 /** 覆盖浏览器实际使用的 AG-UI 提交入口，不只验证独立的审批接口。 */
-@org.junit.jupiter.api.Disabled("旧本地存储测试装配已移除，待改用隔离的 MySQL 测试库")
 class AguiQueuedRunTest {
     @TempDir Path workspace;
     static class TextModel implements Model {

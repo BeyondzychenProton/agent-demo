@@ -1,14 +1,11 @@
 package com.beyondzy.demo.config;
 
 import com.beyondzy.demo.session.ChatSessions;
-import com.beyondzy.demo.service.ThreadCatalogService;
-import com.beyondzy.demo.session.MySqlSessionLogStore;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 运行时装配：模型客户端 + 会话管理器。
  *
- * <p>SessionLog 由 MySQL 会话存储实现持久化；工作区目录仍用于本地工具文件。
+ * <p>SessionLog 由 workspace 内 WorkspaceSessionLogStore（SQLite）持久化；工作区目录同时承载工具文件与派生索引。
  * 模型走 DashScope 的 OpenAI 兼容端点，由 baseUrl + endpointPath 拼成 /chat/completions。
  */
 @Configuration(proxyBeanMethods = false)
@@ -24,11 +21,7 @@ public class ChatConfiguration {
 
     @Bean(destroyMethod = "close")
     ChatSessions sessions(
-            ThreadCatalogService threadCatalogService,
-            MySqlSessionLogStore mySqlSessionLogStore,
-            DataSource dataSource,
             @Value("${chat.workspace}") String workspace,
-            @Value("${chat.user-id:1}") String userId,
             @Value("${chat.base-url}") String baseUrl,
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
@@ -46,9 +39,7 @@ public class ChatConfiguration {
                         .modelName(modelName)
                         .stream(true) // 开启流式，产生 committed 的 model/chunk 事件供增量重放
                         .build();
-        // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
-        return new ChatSessions(workspacePath, model,
-                threadCatalogService, mySqlSessionLogStore, userId, dataSource);
+        return new ChatSessions(workspacePath, model);
     }
 }

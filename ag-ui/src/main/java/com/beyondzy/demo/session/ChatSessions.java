@@ -13,7 +13,9 @@ import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.filesystem.local.LocalFilesystem;
 import io.agentscope.harness.agent.session.AgentSession;
+import io.agentscope.harness.agent.session.WorkspaceSessionLogStore;
 import io.agentscope.core.session.SessionLogStore;
 import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.snapshot.ChatHistory;
@@ -22,14 +24,12 @@ import com.beyondzy.demo.tools.DocSearchTools;
 import com.beyondzy.demo.tools.NoteTools;
 import com.beyondzy.demo.tools.OrderTools;
 import java.nio.file.Path;
-import javax.sql.DataSource;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import com.beyondzy.demo.service.ThreadCatalogService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,20 +99,9 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, null, "local-user", null);
-    }
-
-    public ChatSessions(Path workspace, Model model, ThreadCatalogService catalogService) {
-        this(workspace, model, catalogService, null, "local-user", null);
-    }
-
-    public ChatSessions(Path workspace, Model model, ThreadCatalogService catalogService,
-            SessionLogStore sessionLogStore, String userId, DataSource dataSource) {
-        if (catalogService == null || sessionLogStore == null || dataSource == null)
-            throw new IllegalArgumentException("ChatSessions 需要 MySQL 数据源、会话存储和目录服务");
         modelName = model.getModelName();
-        this.userId = userId;
-        store = sessionLogStore;
+        this.userId = "local-user";
+        store = new WorkspaceSessionLogStore(new LocalFilesystem(workspace.toAbsolutePath()));
         // 演示工具：注册到框架 Toolkit，执行仍由 HarnessAgent 驱动（大纲 M7 / 6.1.9）
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new OrderTools());
