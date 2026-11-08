@@ -72,9 +72,11 @@ test("新会话发送和审批答复跟随增量更新", async ({ page }) => {
   await input.fill("请写入审批测试笔记"); await input.press("Enter");
   await expect(page.getByRole("button", { name: "待处理交互", exact: false })).toBeVisible({ timeout: 30000 });
   await page.getByRole("button", { name: "待处理交互", exact: false }).click();
+  // suspended Trace rows mount open (defaultOpen); do not click summary or the HITL body collapses.
   const card = page.getByRole("region", { name: "待处理交互", exact: true }).locator("details").first();
-  await card.locator("summary").click();
-  await card.getByRole("button", { name: "拒绝", exact: true }).click();
+  const reject = card.getByRole("button", { name: "拒绝", exact: true });
+  await expect(reject).toBeVisible({ timeout: 30000 });
+  await reject.click();
   await expect(page.getByLabel("会话消息").getByText("已拒绝", { exact: true })).toBeAttached({ timeout: 30000 });
   await expect(page.getByLabel("会话消息").getByText("完成。", { exact: false })).toBeVisible({ timeout: 30000 });
 });
