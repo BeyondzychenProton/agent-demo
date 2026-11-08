@@ -1,11 +1,12 @@
 import { CopilotChatInput, useCopilotChatConfiguration } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { AuthUser } from "@/auth/api";
 import { apiFetch } from "@/auth/api";
+import { ApprovalBar } from "@/components/ApprovalBar";
 import { ThreadListPanel } from "@/components/ThreadListPanel";
-import { WindowedTranscript, TranscriptItem } from "@/components/WindowedTranscript";
-import { getThreadStore, useThreadView, type ViewItem } from "@/readmodel/threadStore";
+import { WindowedTranscript } from "@/components/WindowedTranscript";
+import { getThreadStore, useThreadView } from "@/readmodel/threadStore";
 
 /** 公共输入组件与受控消息视图组合，历史加载不启动 Agent，也不再连接全量历史通道。 */
 const LegacyChatApp = lazy(() => import("@/components/LegacyChatApp"));
@@ -29,10 +30,10 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
         <div className="mb-3 flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold">Session Chat</h1>
         </div>
-        <PendingInbox key={`inbox-${threadId}`} threadId={threadId} />
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4">
           <WindowedTranscript key={threadId} threadId={threadId} />
         </div>
+        <ApprovalBar key={`approval-${threadId}`} threadId={threadId} />
         <ChatInput key={`input-${threadId}`} threadId={threadId} />
       </section> : <p>正在初始化会话…</p>}
     </div>
@@ -81,35 +82,5 @@ function ChatInput({ threadId }: { threadId: string }) {
     <CopilotChatInput value={text} onChange={setText} onSubmitMessage={value => void send(value)}
       sendButton={{ disabled: view.submissionBlocked, "aria-label": "发送消息" }}
       textArea={{ disabled: view.submissionBlocked, placeholder: "输入消息，回车发送…" }} />
-  </div>;
-}
-
-/** 待答列表独立于历史尾页，较早的审批也能访问；每次只挂载一页。 */
-function PendingInbox({ threadId }: { threadId: string }) {
-  const view = useThreadView(threadId);
-  const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<ViewItem[]>([]);
-  const [after, setAfter] = useState("0");
-  const [next, setNext] = useState("");
-  const [error, setError] = useState("");
-  useEffect(() => { setAfter("0"); }, [view.status?.pendingCount]);
-  useEffect(() => {
-    if (!open || !view.status?.pendingCount) return;
-    const abort = new AbortController();
-    void apiFetch(`/api/v2/threads/${encodeURIComponent(threadId)}/interactions?after=${after}`, { signal: abort.signal })
-      .then(async response => { if (!response.ok) throw new Error("读取待答失败"); return response.json(); })
-      .then(data => { if (!abort.signal.aborted) { setItems(data.items); setNext(data.nextCursor); setError(""); } })
-      .catch(caught => { if (!abort.signal.aborted) setError(caught.message); });
-    return () => abort.abort();
-  }, [threadId, open, after, view.status?.pendingCount, view.status?.inboxSeq, view.status?.activeRun, view.status?.revision]);
-  if (!view.status?.pendingCount) return null;
-  return <div role="region" aria-label="待处理交互" className="mb-3 rounded-xl border border-violet-400/30 p-2 text-xs">
-    <button className="underline" onClick={() => setOpen(value => !value)}>待处理交互 {view.status.pendingCount} 项 · {open ? "收起" : "查看"}</button>
-    {open && <div className="mt-2 max-h-72 space-y-2 overflow-auto">
-      {error && <p>{error}</p>}
-      {items.map(item => <TranscriptItem key={item.itemId} entry={item} threadId={threadId} onChanged={view.refresh} />)}
-      {after !== "0" && <button onClick={() => setAfter("0")} className="mr-3 underline">回到首批</button>}
-      {items.length === 20 && next && <button onClick={() => setAfter(next)} className="underline">下一批交互</button>}
-    </div>}
   </div>;
 }
