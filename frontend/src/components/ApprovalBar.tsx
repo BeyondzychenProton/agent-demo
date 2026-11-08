@@ -1,9 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { apiFetch } from "@/auth/api";
 import { pickOldestPending } from "@/components/chat/pickOldestPending";
 import { getThreadStore, useThreadView, type ViewItem } from "@/readmodel/threadStore";
 import type { ToolCardViewModel } from "@/types/chat";
+
+async function loadOldestActionable(threadId: string, signal?: AbortSignal): Promise<ViewItem | null> {
+  let after = "0";
+  for (;;) {
+    const response = await apiFetch(
+      `/api/v2/threads/${encodeURIComponent(threadId)}/interactions?after=${encodeURIComponent(after)}`,
+      { signal },
+    );
+    if (!response.ok) throw new Error("读取待确认操作失败");
+    const data = await response.json() as { items: ViewItem[]; nextCursor?: string | null };
+    const picked = pickOldestPending(data.items ?? []);
+    if (picked) return picked;
+    if (!data.nextCursor || !(data.items?.length)) return null;
+    after = data.nextCursor;
+  }
+}
 
 export function ApprovalBar({ threadId }: { threadId: string }) {
   const view = useThreadView(threadId);
@@ -14,23 +30,42 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
   const [notice, setNotice] = useState("");
   const [retry, setRetry] = useState<{ decision: "approve" | "reject" | "cancel"; reason: string } | null>(null);
   const [error, setError] = useState("");
+  const shownId = useRef<string | null>(null);
 
   const reload = async (signal?: AbortSignal) => {
-    if (!pendingCount) { setEntry(null); return; }
-    const response = await apiFetch(`/api/v2/threads/${encodeURIComponent(threadId)}/interactions?after=0`, { signal });
-    if (!response.ok) throw new Error("读取待确认操作失败");
-    const data = await response.json() as { items: ViewItem[] };
-    setEntry(pickOldestPending(data.items));
+    if (!pendingCount) {
+      setEntry(null);
+      return null;
+    }
+    const next = await loadOldestActionable(threadId, signal);
+    if (signal?.aborted) return null;
+    setEntry(next);
+    return next;
   };
 
   useEffect(() => {
-    if (!pendingCount) { setEntry(null); setBusy(false); setNotice(""); setRetry(null); return; }
+    if (!pendingCount) {
+      setEntry(null); setBusy(false); setNotice(""); setRetry(null); setReason("");
+      shownId.current = null;
+      return;
+    }
     const abort = new AbortController();
     void reload(abort.signal)
       .then(() => { if (!abort.signal.aborted) setError(""); })
       .catch(caught => { if (!abort.signal.aborted) setError(caught instanceof Error ? caught.message : "读取失败"); });
     return () => abort.abort();
   }, [threadId, pendingCount, view.status?.inboxSeq, view.status?.revision, view.status?.activeRun]);
+
+  useEffect(() => {
+    const id = entry?.itemId ?? null;
+    if (id !== shownId.current) {
+      shownId.current = id;
+      setBusy(false);
+      setReason("");
+      setNotice("");
+      setRetry(null);
+    }
+  }, [entry?.itemId]);
 
   if (!pendingCount) return null;
   const card = entry?.item.kind === "tool-card" ? entry.item as ToolCardViewModel : null;
@@ -57,11 +92,10 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
         if (response.status === 400) setBusy(false);
       } else {
         setNotice(decision === "cancel" ? "取消结果已记录" : "答复已接收，正在确认处理进度");
-        setReason("");
       }
       await getThreadStore(threadId).refresh();
       await reload();
-      setBusy(false);
+      // busy stays true until entry.itemId changes (same-decision lock), matching prior ToolCardView.
     } catch {
       setNotice("正在确认提交结果，请先查询；如需重试，只能重发同一决定");
       setRetry({ decision, reason: submittedReason });

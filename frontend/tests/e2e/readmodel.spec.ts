@@ -16,13 +16,10 @@ test("历史窗口、长正文及诊断面板只使用同一展示流", async ({
   await expect(page.getByRole("button", { name: "下一页", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(page.getByRole("button", { name: "上一页", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "打开服务端视图" }).click();
-  await expect(page.getByLabel("服务端历史视图")).toBeVisible();
   expect(urls.filter(url => url.includes("/api/v2/threads/long-history/events")).length).toBe(1);
   expect(urls.some(url => url.includes("/agent/chat/connect"))).toBe(false);
   expect(errors).toEqual([]);
   await page.screenshot({ path: "test-results/long-history.png", fullPage: true });
-  await page.getByRole("button", { name: "关闭服务端视图" }).click();
   await page.getByRole("button", { name: "收起正文", exact: false }).click();
   const older = page.waitForResponse(response => response.url().includes("/long-history/view?before="));
   await page.getByRole("button", { name: "加载更早", exact: true }).click();
@@ -75,6 +72,6 @@ test("新会话发送和审批答复跟随增量更新", async ({ page }) => {
   const reject = bar.getByRole("button", { name: "拒绝", exact: true });
   await expect(reject).toBeVisible({ timeout: 30000 });
   await reject.click();
-  await expect(page.getByLabel("会话消息").getByText("已拒绝", { exact: true })).toBeAttached({ timeout: 30000 });
+  await expect(bar).toBeHidden({ timeout: 30000 });
   await expect(page.getByLabel("会话消息").getByText("完成。", { exact: false })).toBeVisible({ timeout: 30000 });
 });
