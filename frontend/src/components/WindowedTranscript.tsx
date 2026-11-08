@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2";
 import { SoftMessageBubble } from "@/components/chat/SoftMessageBubble";
 import { messageChrome } from "@/components/chat/messageChrome";
+import { isNearBottom, stickScrollToBottom } from "@/components/chat/scrollFollow";
 import { ToolCardView } from "@/components/ToolCardView";
 import { useThreadView, type ViewItem } from "@/readmodel/threadStore";
 
@@ -11,6 +12,7 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
   const view = useThreadView(threadId);
   const scroll = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const programmatic = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const scrollFrame = useRef<number | undefined>(undefined);
   const virtual = useVirtualizer({
@@ -18,6 +20,8 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
     overscan: 4, getItemKey: index => view.items[index].itemId,
   });
   const totalHeight = virtual.getTotalSize();
+  const tail = view.items.length ? view.items[view.items.length - 1] : undefined;
+  const tailVersion = tail?.contentVersion ?? 0;
   useEffect(() => {
     if (view.submission) {
       // 用户主动发送消息时回到尾部；读取旧历史时的新助手消息仍保持原来的不打断策略。
@@ -45,12 +49,21 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
       }
       anchor.current = null;
     } else if (following.current) {
-      // 使用原生滚动，避免动态测量的索引追踪器在用户手动滚动后仍反复拉回旧锚点。
-      const frame = requestAnimationFrame(() => scroll.current?.scrollTo({ top: totalHeight }));
+      // Stick to the live scrollHeight after layout. Using virtual totalSize alone lags
+      // mid-stream growth and onScroll then clears following when we land short of the bottom.
+      const frame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const element = scroll.current;
+          if (!element || !following.current) return;
+          programmatic.current = true;
+          stickScrollToBottom(element);
+          requestAnimationFrame(() => { programmatic.current = false; });
+        });
+      });
       scrollFrame.current = frame;
       return () => cancelAnimationFrame(frame);
     }
-  }, [view.items, view.fetching, virtual, totalHeight]);
+  }, [view.items, view.fetching, virtual, totalHeight, tailVersion]);
   return <div className="flex h-full min-h-0 flex-col gap-2">
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       {view.hasMore && <button onClick={() => void load()} disabled={view.fetching} className="underline">{view.fetching ? "加载中…" : "加载更早"}</button>}
@@ -64,14 +77,14 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
     {view.loading && <p role="status">正在加载会话…</p>}
     {view.error && <p role="status" className="text-xs text-amber-300">{view.error} <button onClick={() => void view.reload()} className="underline">重新加载</button></p>}
     <div ref={scroll} style={{ overflowAnchor: "none" }} className="min-h-0 flex-1 overflow-auto" onWheel={() => {
-      if (scrollFrame.current !== undefined) cancelAnimationFrame(scrollFrame.current);
-      anchor.current = null; following.current = false;
+      anchor.current = null;
+      // Let onScroll decide; do not clear following before the wheel position settles.
     }} onTouchStart={() => {
-      if (scrollFrame.current !== undefined) cancelAnimationFrame(scrollFrame.current);
-      anchor.current = null; following.current = false;
+      anchor.current = null;
     }} onScroll={() => {
+      if (programmatic.current) return;
       const element = scroll.current;
-      if (element) following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+      if (element) following.current = isNearBottom(element.scrollTop, element.scrollHeight, element.clientHeight);
     }} aria-label={diagnostic ? "服务端历史视图" : "会话消息"}>
       {!view.loading && !view.items.length && <p className="p-4 text-sm text-muted-foreground">发送一条消息，开始会话。</p>}
       <div style={{ height: virtual.getTotalSize(), position: "relative" }}>
