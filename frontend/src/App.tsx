@@ -21,7 +21,6 @@ export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: ()
 
 function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const config = useCopilotChatConfiguration();
-  const [diagnostic, setDiagnostic] = useState(false);
   const threadId = config?.threadId;
   return <main className="h-screen w-screen p-4">
     <div className="mx-auto grid h-full max-w-[1700px] grid-cols-[260px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1 max-[760px]:grid-rows-[180px_minmax(0,1fr)]">
@@ -29,14 +28,10 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       {threadId ? <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-3xl p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold">Session Chat</h1>
-          <div className="flex items-center gap-3 text-xs">
-            <button onClick={() => setDiagnostic(value => !value)} className="underline">{diagnostic ? "关闭" : "打开"}服务端视图</button>
-          </div>
         </div>
         <PendingInbox key={`inbox-${threadId}`} threadId={threadId} />
-        <div className={`grid min-h-0 flex-1 gap-4 ${diagnostic ? "grid-cols-2 max-[1000px]:grid-cols-1" : "grid-cols-1"}`}>
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4">
           <WindowedTranscript key={threadId} threadId={threadId} />
-          {diagnostic && <WindowedTranscript key={`diagnostic-${threadId}`} threadId={threadId} diagnostic />}
         </div>
         <ChatInput key={`input-${threadId}`} threadId={threadId} />
       </section> : <p>正在初始化会话…</p>}
@@ -81,7 +76,7 @@ function ChatInput({ threadId }: { threadId: string }) {
     : view.status?.pendingCount ? "请先处理待确认的操作"
     : view.submissionBlocked ? "正在处理当前会话，请稍候…" : "";
   return <div data-copilotkit className="mt-3 border-t border-border pt-3">
-    {notice && <p role="status" className="mb-2 text-xs text-amber-300">{notice}</p>}
+    {notice && <p role="status" className="mb-2 text-xs text-amber-700">{notice}</p>}
     {submission?.phase === "uncertain" && <button onClick={() => void send(submission.text, true)} className="mb-2 text-xs underline">重试同一请求</button>}
     <CopilotChatInput value={text} onChange={setText} onSubmitMessage={value => void send(value)}
       sendButton={{ disabled: view.submissionBlocked, "aria-label": "发送消息" }}

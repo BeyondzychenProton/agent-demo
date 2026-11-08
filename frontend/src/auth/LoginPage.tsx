@@ -33,7 +33,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (user: AuthUser) => void }
         <label className="mt-6 block text-xs text-muted-foreground">
           手机号
           <input
-            className="mt-1 w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-aurora"
+            className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
             autoComplete="username"
@@ -44,14 +44,14 @@ export function LoginPage({ onSuccess }: { onSuccess: (user: AuthUser) => void }
           密码
           <input
             type="password"
-            className="mt-1 w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-aurora"
+            className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
             required
           />
         </label>
-        {error && <p className="mt-3 text-sm text-amber-300">{error}</p>}
+        {error && <p className="mt-3 text-sm text-amber-700">{error}</p>}
         <button
           type="submit"
           disabled={pending}

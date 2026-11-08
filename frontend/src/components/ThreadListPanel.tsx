@@ -177,8 +177,8 @@ function ThreadRow({
       className={cn(
         "group flex items-start justify-between gap-2 rounded-2xl border p-3 transition-all duration-300",
         active
-          ? "border-champagne/40 bg-champagne/10 text-foreground shadow-[0_12px_32px_oklch(0_0_0/0.28)]"
-          : "border-border bg-secondary/30 text-foreground hover:border-champagne/25 hover:bg-secondary/60 hover:shadow-[0_12px_32px_oklch(0_0_0/0.25)]",
+          ? "border-primary/30 bg-accent text-foreground"
+          : "border-border bg-card text-foreground hover:bg-secondary",
       )}
     >
       <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
@@ -196,7 +196,7 @@ function ThreadRow({
           type="button"
           title="归档"
           onClick={onArchive}
-          className="rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-background/60 hover:text-champagne"
+          className="rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground"
         >
           归档
         </button>

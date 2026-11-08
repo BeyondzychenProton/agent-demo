@@ -14,20 +14,20 @@ import type { ToolCardStatus } from "@/types/chat";
 import { mapToolStatus, type TraceVisual } from "@/components/chat/toolStatusMap";
 
 function VisualIcon({ visual }: { visual: TraceVisual }) {
-  if (visual === "done") return <CheckCircle2 className="size-3.5 text-emerald-400" />;
-  if (visual === "error") return <XCircle className="size-3.5 text-red-400" />;
-  if (visual === "hitl") return <PauseCircle className="size-3.5 text-violet-400" />;
+  if (visual === "done") return <CheckCircle2 className="size-3.5 text-emerald-600" />;
+  if (visual === "error") return <XCircle className="size-3.5 text-red-600" />;
+  if (visual === "hitl") return <PauseCircle className="size-3.5 text-primary" />;
   if (visual === "muted") return <AlertTriangle className="size-3.5 text-muted-foreground" />;
-  if (visual === "running") return <Loader2 className="size-3.5 animate-spin text-amber-400" />;
-  return <Wrench className="size-3.5 text-sky-400" />;
+  if (visual === "running") return <Loader2 className="size-3.5 animate-spin text-amber-600" />;
+  return <Wrench className="size-3.5 text-sky-600" />;
 }
 
 const LABEL_STYLE: Record<TraceVisual, string> = {
-  pending: "text-sky-300",
-  running: "text-amber-300",
-  done: "text-emerald-300",
-  error: "text-red-300",
-  hitl: "text-violet-300",
+  pending: "text-sky-700",
+  running: "text-amber-700",
+  done: "text-emerald-700",
+  error: "text-red-700",
+  hitl: "text-primary",
   muted: "text-muted-foreground",
 };
 

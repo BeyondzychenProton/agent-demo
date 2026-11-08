@@ -67,7 +67,6 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
   return <div className="flex h-full min-h-0 flex-col gap-2">
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       {view.hasMore && <button onClick={() => void load()} disabled={view.fetching} className="underline">{view.fetching ? "加载中…" : "加载更早"}</button>}
-      <button onClick={() => { following.current = true; void view.reload(); }} className="underline">回到最新</button>
       <span>{view.status?.activeRun ? "正在执行" : view.status?.syncState === "syncing" ? "正在同步" : "已同步"}</span>
       {view.trimmed && <span>已释放远处历史，可重新加载</span>}
     </div>
@@ -75,7 +74,7 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
       执行水位 {view.status?.execSeq ?? 0} / 输入水位 {view.status?.inboxSeq ?? 0} / 展示版本 {view.status?.revision ?? 0}
     </p>}
     {view.loading && <p role="status">正在加载会话…</p>}
-    {view.error && <p role="status" className="text-xs text-amber-300">{view.error} <button onClick={() => void view.reload()} className="underline">重新加载</button></p>}
+    {view.error && <p role="status" className="text-xs text-amber-700">{view.error} <button onClick={() => void view.reload()} className="underline">重新加载</button></p>}
     <div ref={scroll} style={{ overflowAnchor: "none" }} className="min-h-0 flex-1 overflow-auto" onWheel={() => {
       anchor.current = null;
       // Let onScroll decide; do not clear following before the wheel position settles.

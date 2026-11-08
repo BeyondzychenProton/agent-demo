@@ -33,29 +33,51 @@
   --radius-2xl: calc(var(--radius) + 10px);
 }
 
-:root,
+:root {
+  --radius: 0.85rem;
+  --background: oklch(0.99 0.005 95);
+  --foreground: oklch(0.25 0.01 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.25 0.01 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.25 0.01 255);
+  --primary: oklch(0.45 0.14 250);
+  --primary-foreground: oklch(0.99 0.005 95);
+  --secondary: oklch(0.96 0.005 255);
+  --secondary-foreground: oklch(0.28 0.01 255);
+  --muted: oklch(0.96 0.005 255);
+  --muted-foreground: oklch(0.52 0.015 255);
+  --accent: oklch(0.95 0.01 250);
+  --accent-foreground: oklch(0.35 0.08 250);
+  --destructive: oklch(0.55 0.18 25);
+  --border: oklch(0.88 0.01 255);
+  --input: oklch(0.88 0.01 255);
+  --ring: oklch(0.45 0.14 250 / 0.45);
+  --champagne: oklch(0.45 0.14 250);
+  --aurora: oklch(0.55 0.1 250);
+}
+
 .dark {
-  --radius: 0.95rem;
-  --background: oklch(0.13 0.012 255);
-  --foreground: oklch(0.94 0.012 95);
-  --card: oklch(0.17 0.014 255 / 0.72);
-  --card-foreground: oklch(0.94 0.012 95);
-  --popover: oklch(0.16 0.014 255);
-  --popover-foreground: oklch(0.94 0.012 95);
-  --primary: oklch(0.84 0.065 88);
-  --primary-foreground: oklch(0.18 0.02 80);
-  --secondary: oklch(0.22 0.016 255);
-  --secondary-foreground: oklch(0.9 0.014 95);
-  --muted: oklch(0.2 0.014 255);
-  --muted-foreground: oklch(0.68 0.02 95);
-  --accent: oklch(0.24 0.02 210);
-  --accent-foreground: oklch(0.9 0.03 195);
-  --destructive: oklch(0.62 0.12 25);
-  --border: oklch(0.84 0.05 88 / 0.14);
-  --input: oklch(0.84 0.05 88 / 0.16);
-  --ring: oklch(0.84 0.065 88 / 0.45);
-  --champagne: oklch(0.84 0.065 88);
-  --aurora: oklch(0.78 0.07 195);
+  --background: oklch(0.99 0.005 95);
+  --foreground: oklch(0.25 0.01 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.25 0.01 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.25 0.01 255);
+  --primary: oklch(0.45 0.14 250);
+  --primary-foreground: oklch(0.99 0.005 95);
+  --secondary: oklch(0.96 0.005 255);
+  --secondary-foreground: oklch(0.28 0.01 255);
+  --muted: oklch(0.96 0.005 255);
+  --muted-foreground: oklch(0.52 0.015 255);
+  --accent: oklch(0.95 0.01 250);
+  --accent-foreground: oklch(0.35 0.08 250);
+  --destructive: oklch(0.55 0.18 25);
+  --border: oklch(0.88 0.01 255);
+  --input: oklch(0.88 0.01 255);
+  --ring: oklch(0.45 0.14 250 / 0.45);
+  --champagne: oklch(0.45 0.14 250);
+  --aurora: oklch(0.55 0.1 250);
 }
 
 @layer base {
@@ -72,16 +94,11 @@
 
   body {
     @apply m-0 min-h-screen min-w-80 overflow-x-hidden bg-background text-foreground;
-    background:
-      radial-gradient(ellipse 70% 50% at 12% -8%, oklch(0.84 0.065 88 / 0.12), transparent 55%),
-      radial-gradient(ellipse 55% 45% at 88% 8%, oklch(0.72 0.08 195 / 0.12), transparent 50%),
-      radial-gradient(ellipse 50% 40% at 50% 100%, oklch(0.4 0.04 255 / 0.35), transparent 55%),
-      oklch(0.11 0.012 255);
   }
 
   ::selection {
-    background: oklch(0.84 0.065 88 / 0.28);
-    color: oklch(0.98 0.01 95);
+    background: oklch(0.45 0.14 250 / 0.18);
+    color: oklch(0.2 0.02 255);
   }
 
   button,
@@ -108,17 +125,17 @@
 
 @layer components {
   .glass-panel {
-    @apply border border-border bg-card/80 shadow-[0_24px_80px_oklch(0_0_0/0.35)] backdrop-blur-2xl transition-shadow duration-300;
+    @apply border border-border bg-card shadow-[0_1px_2px_oklch(0_0_0/0.04),0_8px_24px_oklch(0_0_0/0.04)];
   }
 
   .glass-panel:hover {
     box-shadow:
-      0 28px 90px oklch(0 0 0 / 0.4),
-      0 0 0 1px oklch(0.84 0.065 88 / 0.08);
+      0 1px 2px oklch(0 0 0 / 0.05),
+      0 10px 28px oklch(0 0 0 / 0.06);
   }
 
   .eyebrow {
-    @apply mb-2 text-[0.7rem] font-semibold tracking-[0.22em] text-champagne uppercase;
+    @apply mb-2 text-[0.7rem] font-semibold tracking-[0.18em] text-muted-foreground uppercase;
   }
 
   .hero-grid {
@@ -153,37 +170,37 @@
   }
 
   [data-copilotkit] {
-    --background: oklch(0.14 0.012 255);
-    --foreground: oklch(0.94 0.012 95);
-    --card: oklch(0.18 0.014 255);
-    --card-foreground: oklch(0.94 0.012 95);
-    --popover: oklch(0.16 0.014 255);
-    --popover-foreground: oklch(0.94 0.012 95);
-    --primary: oklch(0.84 0.065 88);
-    --primary-foreground: oklch(0.18 0.02 80);
-    --secondary: oklch(0.22 0.016 255);
-    --secondary-foreground: oklch(0.9 0.014 95);
-    --muted: oklch(0.2 0.014 255);
-    --muted-foreground: oklch(0.68 0.02 95);
-    --accent: oklch(0.24 0.02 210);
-    --accent-foreground: oklch(0.9 0.03 195);
-    --destructive: oklch(0.62 0.12 25);
-    --border: oklch(0.84 0.05 88 / 0.14);
-    --input: oklch(0.84 0.05 88 / 0.16);
-    --ring: oklch(0.84 0.065 88 / 0.45);
-    --radius: 0.95rem;
+    --background: var(--background);
+    --foreground: var(--foreground);
+    --card: var(--card);
+    --card-foreground: var(--card-foreground);
+    --popover: var(--popover);
+    --popover-foreground: var(--popover-foreground);
+    --primary: var(--primary);
+    --primary-foreground: var(--primary-foreground);
+    --secondary: var(--secondary);
+    --secondary-foreground: var(--secondary-foreground);
+    --muted: var(--muted);
+    --muted-foreground: var(--muted-foreground);
+    --accent: var(--accent);
+    --accent-foreground: var(--accent-foreground);
+    --destructive: var(--destructive);
+    --border: var(--border);
+    --input: var(--input);
+    --ring: var(--ring);
+    --radius: var(--radius);
   }
 
   .surface-row {
-    @apply rounded-2xl border border-border/70 bg-secondary/40 p-3 transition-all duration-300;
+    @apply rounded-2xl border border-border bg-secondary/80 p-3 transition-colors duration-200;
   }
 
   .surface-row:hover {
-    @apply border-champagne/25 bg-secondary/70 shadow-[0_12px_40px_oklch(0_0_0/0.25)];
+    @apply border-border bg-secondary;
   }
 
   .prompt-chip {
-    @apply rounded-2xl border border-border bg-secondary/30 p-3 text-left text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-champagne/30 hover:bg-secondary/60 hover:shadow-[0_16px_40px_oklch(0_0_0/0.3)];
+    @apply rounded-2xl border border-border bg-card p-3 text-left text-sm transition-colors duration-200 hover:bg-secondary;
   }
 
   /*

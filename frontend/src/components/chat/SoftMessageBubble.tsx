@@ -16,10 +16,10 @@ export function SoftMessageBubble({
   return (
     <article
       className={cn(
-        "rounded-2xl border px-3.5 py-2.5 text-sm",
+        "rounded-2xl px-3.5 py-2.5 text-sm",
         role === "user"
-          ? "border-border/50 bg-secondary/40"
-          : "border-border/40 bg-secondary/25",
+          ? "bg-secondary text-foreground"
+          : "bg-transparent text-foreground",
       )}
     >
       <p className="mb-1.5 text-[11px] text-muted-foreground">{eyebrow}</p>
@@ -27,7 +27,7 @@ export function SoftMessageBubble({
         {children}
         {showCaret ? (
           <span
-            className="ml-0.5 inline-block h-[1em] w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-champagne/80 align-baseline"
+            className="ml-0.5 inline-block h-[1em] w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-foreground/50 align-baseline"
             aria-hidden
           />
         ) : null}
