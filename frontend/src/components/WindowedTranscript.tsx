@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2";
+import { SoftMessageBubble } from "@/components/chat/SoftMessageBubble";
+import { messageChrome } from "@/components/chat/messageChrome";
 import { ToolCardView } from "@/components/ToolCardView";
 import { useThreadView, type ViewItem } from "@/readmodel/threadStore";
 
@@ -88,17 +90,22 @@ export const TranscriptItem = memo(function TranscriptItem({ entry, threadId, on
   const item = entry.item;
   // 普通文本及巨大正文预览无需进入 Markdown 解析/代码高亮链，减少滚动时新行的挂载成本。
   const plain = item.kind === "message" && (item.role === "user" || !!entry.details.text || !/[`*_~#<>\[\]$|]/.test(item.text));
-  return <article className="rounded-2xl border border-border bg-secondary/30 p-3 text-sm">
-    {item.kind === "message" ? <>
-      <p className="mb-2 text-xs text-muted-foreground">{item.role === "user" ? "用户" : "助手"}{item.partial ? " · 正在生成" : ""}
-        {entry.localPhase && ` · ${{ sending: "正在发送", accepted: "已接收，正在同步", uncertain: "接收结果待确认", completed: "已完成，正在同步", rejected: "提交未被接受" }[entry.localPhase]}`}
-      </p>
+  if (item.kind !== "message") {
+    return <div>
+      <ToolCardView card={item} threadId={threadId} onChanged={() => void onChanged()} />
+      {Object.entries(entry.details).map(([field, detail]) =>
+        <ContentDetail key={`${entry.contentVersion}-${field}`} threadId={threadId} entry={entry} field={field} bytes={detail.bytes} />)}
+    </div>;
+  }
+  const chrome = messageChrome({ role: item.role, partial: item.partial, localPhase: entry.localPhase });
+  return <div>
+    <SoftMessageBubble role={item.role} eyebrow={chrome.eyebrow} showCaret={chrome.showCaret}>
       {plain ? <p className="whitespace-pre-wrap break-words">{item.text}</p>
         : <CopilotChatAssistantMessage.MarkdownRenderer content={item.text} mode={item.partial ? "streaming" : "static"} isAnimating={!!item.partial} className="break-words text-foreground" />}
-    </> : <ToolCardView card={item} threadId={threadId} onChanged={() => void onChanged()} />}
+    </SoftMessageBubble>
     {Object.entries(entry.details).map(([field, detail]) =>
       <ContentDetail key={`${entry.contentVersion}-${field}`} threadId={threadId} entry={entry} field={field} bytes={detail.bytes} />)}
-  </article>;
+  </div>;
 });
 
 /** 巨大内容一次只保留一页；展开前不下载，不把全文隐藏在折叠 DOM 中。 */
