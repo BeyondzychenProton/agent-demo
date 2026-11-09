@@ -1,6 +1,9 @@
 package com.beyondzy.demo.session;
 
 import com.beyondzy.demo.auth.support.UserContext;
+import com.beyondzy.demo.governance.GovernanceGateway;
+import com.beyondzy.demo.governance.GovernanceSnapshot;
+import com.beyondzy.demo.governance.GovernanceToolMount;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
@@ -46,6 +49,7 @@ public final class ChatSessions implements AutoCloseable {
     private static final String AGENT = "session-chat";
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
+    private final GovernanceToolMount governanceMount;
     private final SessionLogStore store;
     private final String defaultUserId;
     private final AgentSessionService agentSessions;
@@ -103,38 +107,60 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, "local-user", null, null, null);
+        this(workspace, model, null, "local-user", null, null, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
-        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence, null);
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
+                agentSessionService, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService, GovernanceGateway governance) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
         store = sessionLogStore;
+        GovernanceSnapshot initialGovernance = null;
+        if (governance != null) {
+            try {
+                initialGovernance = governance.currentSnapshot();
+            } catch (RuntimeException error) {
+                logger.warn("首次拉取治理 Snapshot 失败，本地会话继续可用：{}", error.toString());
+            }
+        }
         // 演示工具：注册到框架 Toolkit，执行仍由 HarnessAgent 驱动（大纲 M7 / 6.1.9）
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new OrderTools());
         toolkit.registerTool(new DocSearchTools());
         toolkit.registerTool(new NoteTools(workspace.toAbsolutePath()));
+        GovernanceToolMount mount = governance == null ? null : new GovernanceToolMount(toolkit, governance);
+        if (mount != null && initialGovernance != null) {
+            try {
+                mount.install(initialGovernance);
+            } catch (RuntimeException error) {
+                logger.warn("安装治理工具失败，本地会话继续可用：{}", error.toString());
+            }
+        }
         agent =
                 HarnessAgent.builder()
                         .name("Session Chat")
                         .agentId(AGENT)
                         .model(model)
-                        .sysPrompt("你是一个简洁的聊天助手，始终用与用户相同的语言回复。"
-                                + "需要查订单、检索文档或记录笔记时，优先调用已提供的工具，"
-                                + "不要编造工具返回的数据。")
+                        .sysPrompt(systemPrompt(governance != null))
                         .workspace(workspace.toAbsolutePath())
                         .sessionLogStore(store)
                         .toolkit(toolkit)
@@ -155,6 +181,8 @@ public final class ChatSessions implements AutoCloseable {
                         .disableAtPathExpansion()
                         .maxIters(8)
                         .build();
+        // 治理工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
+        governanceMount = mount;
         catalog = new ThreadCatalog(this::list, this::log, displayIndex);
         displayViews = new DisplayViewStore(displayIndex);
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
@@ -180,6 +208,27 @@ public final class ChatSessions implements AutoCloseable {
 
     public String modelName() {
         return modelName;
+    }
+
+    /**
+     * 未配置治理时保持原提示词。配置了治理地址后补充人员查询的确认和失败说明；
+     * 工具是否真的出现仍由 Snapshot 决定，闲聊不因此强制调用工具。
+     */
+    public static String systemPrompt(boolean governanceTools) {
+        String base = "你是一个简洁的聊天助手，始终用与用户相同的语言回复。"
+                + "需要查订单、检索文档或记录笔记时，优先调用已提供的工具，"
+                + "不要编造工具返回的数据。";
+        if (!governanceTools) return base;
+        return base
+                + "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
+                + "出现多名候选人时先向用户确认；没有找到时如实说明。"
+                + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
+                + "普通闲聊不要调用工具。";
+    }
+
+    /** 进程启动时装配的治理 Snapshot id；未装配则为 null。更新工具需重启进程。 */
+    public String governanceSnapshotId() {
+        return governanceMount == null ? null : governanceMount.snapshotId();
     }
 
     /** 校验会话 id 合法：字母数字、下划线、连字符，1~80 位。 */

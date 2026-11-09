@@ -1,5 +1,6 @@
 package com.beyondzy.demo.config;
 
+import com.beyondzy.demo.governance.GovernanceClient;
 import com.beyondzy.demo.session.AgentSessionService;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
@@ -10,6 +11,8 @@ import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +25,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 public class ChatConfiguration {
+    private static final Logger logger = LoggerFactory.getLogger(ChatConfiguration.class);
 
     @Bean(destroyMethod = "close")
     ChatSessions sessions(
@@ -33,7 +37,9 @@ public class ChatConfiguration {
             @Value("${chat.base-url}") String baseUrl,
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
-            @Value("${chat.api-key}") String key)
+            @Value("${chat.api-key}") String key,
+            @Value("${governance.base-url:}") String governanceBaseUrl,
+            @Value("${governance.agent-token:}") String governanceAgentToken)
             throws IOException {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
@@ -49,8 +55,16 @@ public class ChatConfiguration {
                         .build();
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
+        GovernanceClient governance = GovernanceClient.ifConfigured(governanceBaseUrl, governanceAgentToken);
+        if (governance == null && hasText(governanceBaseUrl) != hasText(governanceAgentToken)) {
+            logger.warn("治理接入未启用：需要同时配置 governance.base-url 与 governance.agent-token");
+        }
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService);
+                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, governance);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

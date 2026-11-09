@@ -1,11 +1,12 @@
-import { CopilotChatInput, useCopilotChatConfiguration } from "@copilotkit/react-core/v2";
+import { CopilotChatInput, useCopilotChatConfiguration, useThreads } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
 import { lazy, Suspense, useState } from "react";
 import type { AuthUser } from "@/auth/api";
 import { apiFetch } from "@/auth/api";
 import { ApprovalBar } from "@/components/ApprovalBar";
-import { ThreadListPanel } from "@/components/ThreadListPanel";
+import { friendlyThreadTitle, ThreadListPanel } from "@/components/ThreadListPanel";
 import { WindowedTranscript } from "@/components/WindowedTranscript";
+import { THREAD_AGENT_ID } from "@/copilot/constants";
 import { getThreadStore, useThreadView } from "@/readmodel/threadStore";
 
 /** 公共输入组件与受控消息视图组合，历史加载不启动 Agent，也不再连接全量历史通道。 */
@@ -23,21 +24,41 @@ export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: ()
 function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const config = useCopilotChatConfiguration();
   const threadId = config?.threadId;
-  return <main className="h-screen w-screen p-4">
-    <div className="mx-auto grid h-full max-w-[1700px] grid-cols-[260px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1 max-[760px]:grid-rows-[180px_minmax(0,1fr)]">
-      <ThreadListPanel user={user} onLogout={onLogout} />
-      {threadId ? <section className="glass-panel flex min-h-0 flex-col overflow-hidden rounded-3xl p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold">Session Chat</h1>
-        </div>
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4">
-          <WindowedTranscript key={threadId} threadId={threadId} />
-        </div>
-        <ApprovalBar key={`approval-${threadId}`} threadId={threadId} />
-        <ChatInput key={`input-${threadId}`} threadId={threadId} />
-      </section> : <p>正在初始化会话…</p>}
-    </div>
-  </main>;
+  const { threads } = useThreads({ agentId: THREAD_AGENT_ID, limit: 20 });
+  const activeThread = threadId ? threads.find(thread => thread.id === threadId) : undefined;
+  const headerTitle = activeThread
+    ? friendlyThreadTitle(activeThread)
+    : threadId
+      ? "会话"
+      : "正在初始化会话…";
+
+  return (
+    <main className="flex h-screen w-screen overflow-hidden bg-background">
+      <div className="flex h-full w-full min-w-0">
+        <ThreadListPanel user={user} onLogout={onLogout} />
+        {threadId ? (
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
+            <header className="flex h-12 shrink-0 items-center justify-center border-b border-border/70 px-4 sm:px-6">
+              <h1 className="max-w-full truncate text-sm font-medium text-muted-foreground" title={headerTitle}>
+                {headerTitle}
+              </h1>
+            </header>
+            <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pt-3 pb-2 sm:px-6 lg:px-8">
+              <WindowedTranscript key={threadId} threadId={threadId} />
+            </div>
+            <div className="w-full min-w-0 shrink-0 overflow-x-hidden px-4 pb-3 sm:px-6 lg:px-8">
+              <ApprovalBar key={`approval-${threadId}`} threadId={threadId} />
+              <ChatInput key={`input-${threadId}`} threadId={threadId} />
+            </div>
+          </section>
+        ) : (
+          <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            正在初始化会话…
+          </p>
+        )}
+      </div>
+    </main>
+  );
 }
 
 function ChatInput({ threadId }: { threadId: string }) {
@@ -76,11 +97,23 @@ function ChatInput({ threadId }: { threadId: string }) {
     : submission?.phase === "accepted" ? "任务已接收，正在等待回复…"
     : view.status?.pendingCount ? "请先处理待确认的操作"
     : view.submissionBlocked ? "正在处理当前会话，请稍候…" : "";
-  return <div data-copilotkit className="mt-3 border-t border-border pt-3">
-    {notice && <p role="status" className="mb-2 text-xs text-amber-700">{notice}</p>}
-    {submission?.phase === "uncertain" && <button onClick={() => void send(submission.text, true)} className="mb-2 text-xs underline">重试同一请求</button>}
-    <CopilotChatInput value={text} onChange={setText} onSubmitMessage={value => void send(value)}
-      sendButton={{ disabled: view.submissionBlocked, "aria-label": "发送消息" }}
-      textArea={{ disabled: view.submissionBlocked, placeholder: "输入消息，回车发送…" }} />
-  </div>;
+  return (
+    <div data-copilotkit className="w-full min-w-0 pt-1">
+      {notice && <p role="status" className="mb-2 text-xs text-amber-700">{notice}</p>}
+      {submission?.phase === "uncertain" && (
+        <button onClick={() => void send(submission.text, true)} className="mb-2 text-xs underline">
+          重试同一请求
+        </button>
+      )}
+      <div className="composer-shell">
+        <CopilotChatInput
+          value={text}
+          onChange={setText}
+          onSubmitMessage={value => void send(value)}
+          sendButton={{ disabled: view.submissionBlocked, "aria-label": "发送消息" }}
+          textArea={{ disabled: view.submissionBlocked, placeholder: "输入消息，回车发送…" }}
+        />
+      </div>
+    </div>
+  );
 }

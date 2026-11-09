@@ -19,7 +19,10 @@ export function messageChrome(input: {
     };
   }
   if (input.role === "reasoning") {
-    return { eyebrow: "推理", showCaret: !!input.partial };
+    return {
+      eyebrow: input.partial ? "正在思考…" : "已思考",
+      showCaret: !!input.partial,
+    };
   }
   return {
     eyebrow: "助手",

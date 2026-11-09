@@ -134,6 +134,81 @@
       0 10px 28px oklch(0 0 0 / 0.06);
   }
 
+  /*
+   * Composer shell: one light DeepSeek-like bar.
+   * CopilotKit nests another cpk:max-w-3xl + px-4 inside the main column;
+   * neutralize that so the shell fills the section width. Also beat dark tokens.
+   */
+  .composer-shell {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 1.25rem;
+    border: 1px solid var(--border);
+    background: var(--card);
+    padding: 0.35rem 0.5rem;
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .composer-shell:focus-within {
+    border-color: oklch(0.45 0.14 250 / 0.45);
+    box-shadow: 0 0 0 3px oklch(0.45 0.14 250 / 0.12);
+  }
+
+  .composer-shell .cpk\:max-w-3xl,
+  .composer-shell [class*="max-w-3xl"] {
+    max-width: none !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .composer-shell .cpk\:mx-auto,
+  .composer-shell .cpk\:px-4,
+  .composer-shell .cpk\:py-0,
+  .composer-shell [class*="mx-auto"] {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .composer-shell .cpk\:px-4,
+  .composer-shell [class*="px-4"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .composer-shell [data-copilotkit],
+  .composer-shell [data-testid="copilot-chat-input"],
+  .composer-shell form,
+  .composer-shell .copilotKitInput,
+  .composer-shell [class*="copilotKitInput"],
+  .composer-shell [class*="rounded-[28px]"] {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .composer-shell textarea,
+  .composer-shell input {
+    color: var(--foreground) !important;
+    background: transparent !important;
+  }
+
+  .composer-shell textarea::placeholder,
+  .composer-shell input::placeholder {
+    color: var(--muted-foreground) !important;
+  }
+
   .eyebrow {
     @apply mb-2 text-[0.7rem] font-semibold tracking-[0.18em] text-muted-foreground uppercase;
   }
@@ -169,8 +244,15 @@
     height: 100%;
   }
 
+  /*
+   * Beat CopilotKit's `.dark [data-copilotkit] { --background: oklch(14.5%…) }`
+   * so the chat input stays on the app's light chrome even if `html.dark` returns.
+   */
+  html.dark [data-copilotkit],
+  .dark [data-copilotkit],
+  [data-copilotkit].dark,
   [data-copilotkit] {
-    --background: var(--background);
+    --background: var(--card);
     --foreground: var(--foreground);
     --card: var(--card);
     --card-foreground: var(--card-foreground);

@@ -11,8 +11,8 @@
 *.log
 
 # Docs & notes (not part of this submission)
-docs/
-README.md
+docs/*
+!docs/governance-agentscope-bridge.md
 .superpowers/
 ag-ui/docx/
 

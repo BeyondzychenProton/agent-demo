@@ -104,7 +104,7 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
   };
 
   return (
-    <div role="region" aria-label="审批" className="mb-3 rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_oklch(0_0_0/0.04)]">
+    <div role="region" aria-label="审批" className="mb-3 rounded-2xl border border-border/80 bg-secondary/40 p-3">
       {error ? <p className="text-sm text-amber-700">{error}</p> : null}
       {!error && !card ? <p className="text-sm text-muted-foreground">正在加载待确认操作…</p> : null}
       {card?.hitl ? <>

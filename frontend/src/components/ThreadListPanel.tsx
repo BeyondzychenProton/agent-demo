@@ -8,7 +8,6 @@ import { useEffect, useRef } from "react";
 
 import type { AuthUser } from "@/auth/api";
 import { THREAD_AGENT_ID } from "@/copilot/constants";
-import { PanelTitle } from "@/components/PanelTitle";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -77,52 +76,39 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
 
   return (
     <aside
-      className="glass-panel grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] overflow-hidden rounded-[1.75rem] p-4 max-[520px]:rounded-2xl"
+      className="grid h-full w-[260px] min-w-0 max-w-[260px] shrink-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden border-r border-border/80 bg-secondary/40 max-[760px]:h-[180px] max-[760px]:w-full max-[760px]:max-w-none max-[760px]:border-r-0 max-[760px]:border-b"
       aria-label="会话列表"
     >
-      <PanelTitle
-        eyebrow="useThreads"
-        title="会话"
-        icon={<MessageSquarePlus className="size-5" />}
-      />
-      {user && onLogout ? (
-        <div className="mb-3 flex items-center gap-2 rounded-2xl border border-border/70 bg-secondary/25 px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{accountLabel(user)}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{user.phone}</p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="shrink-0 !rounded-full"
-            onClick={onLogout}
-            aria-label="退出登录"
-          >
-            <LogOut className="size-3.5" />
-            退出
-          </Button>
-        </div>
-      ) : null}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" className="rounded-full" onClick={handleNewThread}>
+      <div className="flex min-w-0 items-center gap-2 px-4 pt-4 pb-2">
+        <MessageSquarePlus className="size-4 shrink-0 text-primary" aria-hidden />
+        <h2 className="truncate text-[15px] font-semibold tracking-tight text-foreground">海卓大脑</h2>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-2 px-3 pb-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-9 w-full max-w-full justify-start !rounded-full !border-border !bg-card !shadow-none hover:!bg-accent"
+          onClick={handleNewThread}
+        >
           <MessageSquarePlus className="size-4" />
           新会话
         </Button>
         <Button
           type="button"
           size="sm"
-          variant="outline"
-          className="rounded-full"
+          variant="ghost"
+          className="h-8 w-full max-w-full justify-start !rounded-full text-muted-foreground"
           onClick={refetchThreads}
         >
-          <RefreshCcw className="size-4" />
+          <RefreshCcw className="size-3.5" />
           刷新
         </Button>
       </div>
 
-      <ScrollArea className="min-h-0">
-        <div className="grid gap-2 pr-3">
+      <ScrollArea className="min-h-0 min-w-0 overflow-hidden px-2">
+        <div className="grid w-full max-w-full min-w-0 gap-0.5 pb-3">
           {isLoading ? (
             <ThreadListHint text="正在加载会话..." />
           ) : error ? (
@@ -145,16 +131,38 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
           {hasMoreThreads ? (
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               disabled={isFetchingMoreThreads}
               onClick={fetchMoreThreads}
-              className="mt-2"
+              className="mt-1 h-8 w-full max-w-full text-xs text-muted-foreground"
             >
               {isFetchingMoreThreads ? "加载中..." : "加载更多"}
             </Button>
           ) : null}
         </div>
       </ScrollArea>
+
+      {user && onLogout ? (
+        <div className="flex items-center gap-2 border-t border-border/70 px-3 py-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {accountLabel(user).slice(0, 1)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">{accountLabel(user)}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{user.phone}</p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="shrink-0 !rounded-full text-muted-foreground"
+            onClick={onLogout}
+            aria-label="退出登录"
+          >
+            <LogOut className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
     </aside>
   );
 }
@@ -175,28 +183,26 @@ function ThreadRow({
   return (
     <div
       className={cn(
-        "group flex items-start justify-between gap-2 rounded-2xl border p-3 transition-all duration-300",
+        "group relative w-full max-w-full min-w-0 overflow-hidden rounded-xl px-2.5 py-2 transition-colors duration-150",
         active
-          ? "border-primary/30 bg-accent text-foreground"
-          : "border-border bg-card text-foreground hover:bg-secondary",
+          ? "bg-accent text-foreground"
+          : "text-foreground hover:bg-secondary",
       )}
     >
-      <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">
-            {thread.name || friendlyThreadTitle(thread)}
-          </p>
-          <p className="mt-1 text-xs font-medium text-muted-foreground">
-            {formatThreadTime(thread.lastRunAt ?? thread.updatedAt)}
-          </p>
-        </div>
+      <button type="button" onClick={onSelect} className="block w-full min-w-0 overflow-hidden pr-1 text-left group-hover:pr-14">
+        <p className={cn("truncate text-sm", active ? "font-medium" : "font-normal")}>
+          {thread.name || friendlyThreadTitle(thread)}
+        </p>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+          {formatThreadTime(thread.lastRunAt ?? thread.updatedAt)}
+        </p>
       </button>
-      <div className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100">
+      <div className="pointer-events-none absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 rounded-md bg-inherit opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
         <button
           type="button"
           title="归档"
           onClick={onArchive}
-          className="rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground"
+          className="rounded-md px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
         >
           归档
         </button>
@@ -204,7 +210,7 @@ function ThreadRow({
           type="button"
           title="删除"
           onClick={onDelete}
-          className="rounded-lg px-2 py-1 text-destructive hover:bg-background/60"
+          className="rounded-md p-1 text-muted-foreground hover:bg-card hover:text-destructive"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -215,7 +221,7 @@ function ThreadRow({
 
 function ThreadListHint({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-secondary/20 p-4 text-sm leading-6 text-muted-foreground">
+    <div className="w-full max-w-full min-w-0 rounded-xl px-2.5 py-3 text-sm leading-6 break-words text-muted-foreground">
       {text}
     </div>
   );
@@ -230,7 +236,8 @@ function useRefreshThreadsAfterRun(refetchThreads: () => void) {
   }, [refetchThreads]);
 }
 
-function friendlyThreadTitle(thread: Thread) {
+/** 与侧栏会话行同一套标题规则，供主栏 header 复用。 */
+export function friendlyThreadTitle(thread: Thread) {
   if (thread.name?.trim()) return thread.name.trim();
   const stamp = thread.createdAt ?? thread.updatedAt ?? thread.lastRunAt;
   if (stamp) {
