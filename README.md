@@ -52,6 +52,7 @@
 | `server.port` | 默认 8087，仅监听 127.0.0.1 |
 | `governance.base-url` | 治理底座基址，环境变量 `GOVERNANCE_BASE_URL`，默认空（不接入） |
 | `governance.agent-token` | Agent 令牌，环境变量 `GOVERNANCE_AGENT_TOKEN`；tenant/app/subject 由治理映射 |
+| `chat.identity-connector.shared-key` | 身份连接器机器共享密钥，环境变量 `IDENTITY_CONNECTOR_SHARED_KEY`；**勿把真实 Secret 写入仓库** |
 
 所有项都可用同名环境变量覆盖（Spring 占位符）；`chat.api-key` 留空时启动即报中文错误，不静默降级。
 
@@ -64,9 +65,35 @@
 ```text
 GOVERNANCE_BASE_URL=http://127.0.0.1:8091
 GOVERNANCE_AGENT_TOKEN=replace-with-agent-token
+IDENTITY_CONNECTOR_SHARED_KEY=replace-with-shared-machine-key
 ```
 
-联调时令牌使用治理侧映射，例如 `dev-agent-invoke-demo-token`（对应 subject `agent-invoke-demo`）。手机号与 HMAC Secret **只**配在治理进程（其 `.env.example` / `application-local.properties`），本工程不得写入这些值。
+联调时令牌使用治理侧映射，例如 `dev-agent-invoke-demo-token`（对应 subject `agent-invoke-demo`）。MCP HMAC Secret **只**配在治理进程；本工程不写手机号给治理，可信 phone 由治理回调下方内省 API 取得。
+
+> **联调状态：pending_reverify。** 历史双账号只读联调曾跑通（见治理仓 `docs/superpowers/evidence/2026-11-09-trusted-user-real-integration-report.md`）；当前因 Demo 侧 Run 凭证隔离/生命周期清理与内省只读问题修复中，治理侧 `REAL_USER_INGRESS` 不应再视为已完成。身份域示例 `mantianxing.user` 仅为治理可配置值，**不要**写死进本工程业务逻辑。
+
+#### 身份桥梁（opaque_session_introspection）
+
+| Demo 侧 | 值 |
+|---|---|
+| 内省路径 | `POST /api/internal/identity/session/introspect` |
+| 机器密钥头 | `X-Identity-Connector-Key: <IDENTITY_CONNECTOR_SHARED_KEY>`（亦接受治理 `X-Client-Authorization: Basic base64(appKey:secret)`，校验 secret） |
+| 用户会话 | `Authorization: Bearer <rawSessionToken>`（与登录 Cookie/Bearer 同源） |
+| 成功响应 | `200` + `{ valid, userId, phone, name, authSessionId?, expiresAt? }`；`phone` 来自 `app_user` |
+| 无效会话 / 坏机器密钥 | **`401`**（不用 `200+valid:false`；治理按非 2xx 失败） |
+
+| 治理 Identity Connector 字段 | 建议对齐 |
+|---|---|
+| `protocolType` | `opaque_session_introspection` |
+| `baseUrl` | demo 基址，如 `http://127.0.0.1:8087` |
+| `introspectPath` | `/api/internal/identity/session/introspect` |
+| `httpMethod` | `POST` |
+| `clientAuthType` | `credential_ref`（Secret = 与 `IDENTITY_CONNECTOR_SHARED_KEY` 相同的共享密钥） |
+| `inboundCredentialType` | `opaque_session` |
+| `forwardHeaderName` / `forwardHeaderPrefix` | `Authorization` / `Bearer ` |
+| `responseUserIdPath` / `responsePhonePath` / `responseNamePath` | `userId` / `phone` / `name`（点路径，**不要**写 `$.phone`） |
+
+Agent 出站：`snapshot` 只带 `X-Agent-Token`；`invoke` 额外带 `X-Trusted-User-Credential` + `X-Trusted-User-Credential-Type: opaque_session`（提交任务时捕获的 rawSessionToken，Run 作用域绑定，禁止串用）。
 
 **两个工程启动顺序：**
 
@@ -91,10 +118,10 @@ GOVERNANCE_AGENT_TOKEN=replace-with-agent-token
 
 ```powershell
 cd D:\qwenWork\agentscope-learn-demo\ag-ui
-mvn "-Dtest=GovernanceClientTest,GovernanceToolAssemblyTest" test
+mvn "-Dtest=GovernanceClientTest,GovernanceToolAssemblyTest,SessionIntrospectionServiceTest,IdentityConnectorKeySupportTest,SessionIntrospectControllerTest,RunCredentialIsolationTest,RunCredentialLifecycleTest" test
 ```
 
-覆盖：Snapshot 转换与名称映射、执行器固定 snapshotId/URI、arguments 原样透传且不能覆盖外层身份/绑定、结果与错误分类、新实例重启装配而旧实例绑定不变、装配后拒绝运行中替换、撤权拒绝、脚本模型走 Harness 选工具且闲聊不强制调用。实测：上述套件通过。
+覆盖：Snapshot 转换与名称映射、执行器固定 snapshotId/URI、arguments 原样透传且不能覆盖外层身份/绑定、结果与错误分类、新实例重启装配而旧实例绑定不变、装配后拒绝运行中替换、撤权拒绝、脚本模型走 Harness 选工具且闲聊不强制调用；会话内省契约、机器密钥、两用户并发内省手机号隔离、invoke 用户头、并发 Run 凭证隔离、缺凭证失败闭合、登出/过期后内省失败、凭证不落盘（SessionLog/Workspace）。
 
 **真实对话证据（脱敏）与已知限制：** 见文末「治理接入验收」一节；细节与待对齐项见设计文档。
 
@@ -316,6 +343,7 @@ com.beyondzy.demo
 
 ### 9.2 已知限制与未完成项
 
+- **真实用户入站联调：pending_reverify**（勿再写 `REAL_USER_INGRESS=completed`）：历史双账号只读曾跑通；当前 Demo 侧正修复 Run 凭证严格隔离/清理与内省只读续期副作用，修复后需与治理侧复验。
 - 未配置 `GOVERNANCE_BASE_URL` / `GOVERNANCE_AGENT_TOKEN` 时行为与接入前一致（仅本地演示工具）。
 - 更新工具：本轮只支持重启进程重新装配；不支持运行中在线刷新，无独立 HTTP 刷新口、无后台自动刷新。
 - 系统提示词与工具都在启动构建时固定；要一并更新，需在当前任务结束后重启进程。重启不清除会话历史。

@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
@@ -53,6 +54,12 @@ class GovernanceToolAssemblyTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String URI = "driver://mcp/tenant-a/cms-identity-invoke/identity.resolve";
     private static final String OTHER = "driver://mcp/tenant-a/cms-identity-invoke/identity.search";
+
+    @AfterEach
+    void clearCredentials() {
+        RunCredentialRegistry.clearAll();
+        OutboundUserCredential.clear();
+    }
 
     @Test
     void mapsDottedToolNameWithoutGuessingTheUri() {
@@ -155,6 +162,7 @@ class GovernanceToolAssemblyTest {
         dirty.put("profile", nested);
         dirty.put("aliases", List.of("甲", "乙"));
         dirty.put("optional", null);
+        bindTestRunCredential();
         ToolResultBlock result = toolkit.callTool(ToolCallParam.builder()
                         .toolUseBlock(ToolUseBlock.builder()
                                 .id("call-1")
@@ -163,6 +171,7 @@ class GovernanceToolAssemblyTest {
                                 .content("{\"name\":\"田沐阳\",\"pageNum\":1}")
                                 .build())
                         .input(dirty)
+                        .runtimeContext(context())
                         .build())
                 .block();
 
@@ -318,6 +327,7 @@ class GovernanceToolAssemblyTest {
         gateway.response = GovernanceInvokeResult.rejected(
                 "AUTHZ_DENIED", "当前授权不允许调用该工具", false, false);
 
+        bindTestRunCredential();
         ToolResultBlock denied = toolkit.callTool(ToolCallParam.builder()
                         .toolUseBlock(ToolUseBlock.builder()
                                 .id("deny-1")
@@ -326,6 +336,7 @@ class GovernanceToolAssemblyTest {
                                 .content("{\"name\":\"田沐阳\"}")
                                 .build())
                         .input(Map.of("name", "田沐阳"))
+                        .runtimeContext(context())
                         .build())
                 .block();
 
@@ -335,6 +346,29 @@ class GovernanceToolAssemblyTest {
         assertEquals("snap_bound", gateway.calls.get(0).snapshotId());
         assertEquals(URI, gateway.calls.get(0).uri());
         assertEquals("snap_bound", mount.snapshotId());
+    }
+
+    @Test
+    void missingRunCredentialFailsClosedWithoutCallingGovernance() {
+        RecordingGateway gateway = gateway(snapshot("snap_bound", List.of(tool("identity.resolve", URI, strictSchema()))));
+        Toolkit toolkit = new Toolkit();
+        new GovernanceToolMount(toolkit, gateway).install(gateway.snapshot);
+
+        ToolResultBlock missing = toolkit.callTool(ToolCallParam.builder()
+                        .toolUseBlock(ToolUseBlock.builder()
+                                .id("missing-cred")
+                                .name("identity_resolve")
+                                .input(Map.of("name", "田沐阳"))
+                                .content("{\"name\":\"田沐阳\"}")
+                                .build())
+                        .input(Map.of("name", "田沐阳"))
+                        .runtimeContext(context())
+                        .build())
+                .block();
+
+        assertEquals(ToolResultState.ERROR, missing.getState());
+        assertTrue(text(missing).contains("UNAUTHENTICATED") || text(missing).contains("凭证"));
+        assertEquals(0, gateway.calls.size());
     }
 
     @Test
@@ -375,10 +409,11 @@ class GovernanceToolAssemblyTest {
             assertNotSame(toolkit, agent.getToolkit());
             assertEquals("snap_session", ((GovernanceBoundTool) agent.getToolkit().getTool("identity_resolve")).snapshotId());
             assertEquals("snap_session", mount.snapshotId());
-            AgentSession session = agent.session(context());
+            RuntimeContext ctx = context();
+            AgentSession session = agent.session(ctx);
             session.start();
-            AgentSession.Task done = session.await(session.submit("req-query", "帮我查询田沐阳的信息。"))
-                    .block(Duration.ofSeconds(20));
+            AgentSession.Task done = awaitWithRunCredentialHandoff(
+                    session, "req-query", "帮我查询田沐阳的信息。", "test-session-token", ctx);
             assertNotNull(done);
             assertTrue(done.settled(), done.status() + " " + done.error());
             assertEquals(1, gateway.calls.size());
@@ -482,8 +517,27 @@ class GovernanceToolAssemblyTest {
                 .build();
     }
 
+    private static final String TEST_RUN_ID = "gov-test-run";
+
     private static RuntimeContext context() {
-        return RuntimeContext.builder().userId("local-user").sessionId("gov-session").build();
+        return RuntimeContext.builder()
+                .userId("local-user")
+                .sessionId("gov-session")
+                .runId(TEST_RUN_ID)
+                .build();
+    }
+
+    private static void bindTestRunCredential() {
+        RunCredentialRegistry.bindRun("local-user", "gov-session", TEST_RUN_ID, "test-session-token");
+    }
+
+    /** 走与生产一致的后台生命周期：bind + arm（移交/清理不依赖测试手动 clear）。 */
+    private static AgentSession.Task awaitWithRunCredentialHandoff(
+            AgentSession session, String commandId, String text, String token, RuntimeContext ctx) {
+        RunCredentialRegistry.bindCommand(commandId, ctx.getUserId(), ctx.getSessionId(), token);
+        AgentSession.Task submitted = session.submit(commandId, text);
+        RunCredentialLifecycle.arm(session, ctx.getUserId(), ctx.getSessionId(), submitted);
+        return session.await(submitted).block(Duration.ofSeconds(20));
     }
 
     private static String transcript(AgentSession session) {

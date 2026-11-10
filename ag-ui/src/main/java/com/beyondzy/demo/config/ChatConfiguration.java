@@ -56,8 +56,17 @@ public class ChatConfiguration {
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
         GovernanceClient governance = GovernanceClient.ifConfigured(governanceBaseUrl, governanceAgentToken);
-        if (governance == null && hasText(governanceBaseUrl) != hasText(governanceAgentToken)) {
-            logger.warn("治理接入未启用：需要同时配置 governance.base-url 与 governance.agent-token");
+        if (governance == null) {
+            if (hasText(governanceBaseUrl) != hasText(governanceAgentToken)) {
+                logger.warn("治理接入未启用：需要同时配置 governance.base-url 与 governance.agent-token");
+            } else if (!hasText(governanceBaseUrl) && !hasText(governanceAgentToken)) {
+                logger.warn(
+                        "治理接入未启用：GOVERNANCE_BASE_URL / GOVERNANCE_AGENT_TOKEN 均为空；"
+                                + "Demo Agent 将只有本地工具，不会挂载 Governance BoundTool");
+            }
+        } else {
+            logger.info("治理客户端已配置 baseUrl={}，将在 ChatSessions 启动时拉取 Snapshot 并挂载 BoundTool",
+                    governanceBaseUrl.trim());
         }
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,

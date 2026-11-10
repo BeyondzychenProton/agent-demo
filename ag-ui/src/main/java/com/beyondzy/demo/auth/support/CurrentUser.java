@@ -24,4 +24,16 @@ public final class CurrentUser {
     public static Mono<Long> requireUserId() {
         return require().map(AuthPrincipal::userId);
     }
+
+    /** 当前认证里的不透明会话 rawToken（与 Cookie/Bearer 同源）。 */
+    public static Mono<String> requireRawToken() {
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> ctx.getAuthentication())
+                .filter(Authentication::isAuthenticated)
+                .map(Authentication::getCredentials)
+                .filter(credentials -> credentials != null)
+                .map(String::valueOf)
+                .filter(token -> !token.isBlank())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "缺少会话凭证")));
+    }
 }

@@ -92,6 +92,14 @@ public final class GovernanceClient implements GovernanceGateway {
                     .header("X-Agent-Token", token)
                     .header("Accept", "application/json")
                     .header("X-Trace-Id", UUID.randomUUID().toString());
+            // snapshot 可不带用户头；invoke（及需要真实用户连接检查的调用）必须带提交时捕获的会话凭证。
+            boolean requireTrustedUser = body != null;
+            if (requireTrustedUser) {
+                String userCredential = OutboundUserCredential.current()
+                        .orElseThrow(() -> new IllegalStateException("缺少出站用户会话凭证；请在任务提交时绑定会话"));
+                request.header("X-Trusted-User-Credential", userCredential);
+                request.header("X-Trusted-User-Credential-Type", "opaque_session");
+            }
             if (body == null) {
                 request.GET();
             } else {
@@ -100,6 +108,8 @@ public final class GovernanceClient implements GovernanceGateway {
             }
             HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
             return Exchange.of(response.statusCode(), parseJson(response.body()));
+        } catch (IllegalStateException error) {
+            return Exchange.failed(error.getMessage());
         } catch (IOException error) {
             return Exchange.failed(error.getClass().getSimpleName());
         } catch (InterruptedException error) {

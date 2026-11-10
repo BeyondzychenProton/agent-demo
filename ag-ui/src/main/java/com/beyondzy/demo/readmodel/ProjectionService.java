@@ -1,5 +1,6 @@
 package com.beyondzy.demo.readmodel;
 
+import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.hitl.HitlService;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
@@ -25,7 +26,9 @@ public final class ProjectionService implements AutoCloseable {
     private final java.util.function.Function<String, SessionLog> logs;
     private final ReadModelStore store;
     private final ScheduledExecutorService worker;
-    private final Map<String, Long> watched = new ConcurrentHashMap<>();
+    /** 后台 tick 无 HTTP 请求，必须记住 watch 时的归属用户，否则会落到种子 userId。 */
+    private record Watch(String userId, long at) {}
+    private final Map<String, Watch> watched = new ConcurrentHashMap<>();
     private record Observation(SessionLog.Head head, long inboxSeq, long at) {}
     private final Map<String, Observation> observations = new ConcurrentHashMap<>();
     private record CachedCommands(long execSeq, long inboxSeq, boolean currentFormat,
@@ -77,8 +80,10 @@ public final class ProjectionService implements AutoCloseable {
 
     /** 页面查询只查派生读库；首次升级尚无投影时只初始化一次。 */
     public void watch(String thread) {
+        String userId = UserContext.current()
+                .orElseThrow(() -> new IllegalStateException("投影 watch 需要 UserContext"));
         logs.apply(thread);
-        watched.put(thread, System.currentTimeMillis());
+        watched.put(thread, new Watch(userId, System.currentTimeMillis()));
         if (store.state(thread) == null) sync(thread);
     }
 
@@ -247,11 +252,19 @@ public final class ProjectionService implements AutoCloseable {
         try {
             long now = System.currentTimeMillis();
             for (var entry : watched.entrySet()) {
-                if (now - entry.getValue() > 60_000) {
-                    watched.remove(entry.getKey(), entry.getValue()); observations.remove(entry.getKey()); commandViews.remove(entry.getKey()); continue;
+                Watch watch = entry.getValue();
+                if (now - watch.at() > 60_000) {
+                    watched.remove(entry.getKey(), watch);
+                    observations.remove(entry.getKey());
+                    commandViews.remove(entry.getKey());
+                    continue;
                 }
-                try { sync(entry.getKey()); }
-                catch (RuntimeException error) { LOG.warn("会话展示投影暂时失败：{}", entry.getKey(), error); }
+                try {
+                    // 后台线程无 Security/Reactor 上下文；用 watch 登记的 userId 恢复归属校验。
+                    UserContext.run(watch.userId(), () -> sync(entry.getKey()));
+                } catch (RuntimeException error) {
+                    LOG.warn("会话展示投影暂时失败：{}", entry.getKey(), error);
+                }
             }
             if (now > nextCleanup) { store.cleanup(); nextCleanup = now + 60_000; }
         } catch (RuntimeException error) { LOG.warn("展示调度暂时失败", error); }

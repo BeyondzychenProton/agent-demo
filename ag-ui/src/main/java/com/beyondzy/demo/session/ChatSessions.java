@@ -1,7 +1,10 @@
 package com.beyondzy.demo.session;
 
+import com.beyondzy.demo.auth.support.SubmitCredentialCapture;
 import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.governance.GovernanceGateway;
+import com.beyondzy.demo.governance.RunCredentialLifecycle;
+import com.beyondzy.demo.governance.RunCredentialRegistry;
 import com.beyondzy.demo.governance.GovernanceSnapshot;
 import com.beyondzy.demo.governance.GovernanceToolMount;
 import com.beyondzy.demo.hitl.HitlService;
@@ -155,12 +158,27 @@ public final class ChatSessions implements AutoCloseable {
                 logger.warn("安装治理工具失败，本地会话继续可用：{}", error.toString());
             }
         }
+        boolean governanceToolsMounted = mount != null
+                && mount.snapshotId() != null
+                && !mount.registeredNames().isEmpty();
+        if (governance != null && !governanceToolsMounted) {
+            logger.warn(
+                    "治理客户端已配置，但 BoundTool 未挂载（snapshotId={} tools={}）；Demo 仅有本地工具",
+                    mount == null ? null : mount.snapshotId(),
+                    mount == null ? List.of() : mount.registeredNames());
+        } else if (governanceToolsMounted) {
+            logger.info(
+                    "治理 BoundTool 已挂载 snapshotId={} tools={}",
+                    mount.snapshotId(),
+                    mount.registeredNames());
+        }
         agent =
                 HarnessAgent.builder()
                         .name("Session Chat")
                         .agentId(AGENT)
                         .model(model)
-                        .sysPrompt(systemPrompt(governance != null))
+                        // 提示词只在真正挂上治理工具时启用，避免“有文案无工具”
+                        .sysPrompt(systemPrompt(governanceToolsMounted))
                         .workspace(workspace.toAbsolutePath())
                         .sessionLogStore(store)
                         .toolkit(toolkit)
@@ -229,6 +247,16 @@ public final class ChatSessions implements AutoCloseable {
     /** 进程启动时装配的治理 Snapshot id；未装配则为 null。更新工具需重启进程。 */
     public String governanceSnapshotId() {
         return governanceMount == null ? null : governanceMount.snapshotId();
+    }
+
+    /** 启动时装入 Toolkit 的治理 BoundTool 注册名；未挂载时为空列表。 */
+    public List<String> governanceRegisteredTools() {
+        return governanceMount == null ? List.of() : governanceMount.registeredNames();
+    }
+
+    /** 是否已挂载至少一个治理 BoundTool（供诊断与 /info 探测）。 */
+    public boolean governanceBoundToolsMounted() {
+        return governanceSnapshotId() != null && !governanceRegisteredTools().isEmpty();
     }
 
     /** 校验会话 id 合法：字母数字、下划线、连字符，1~80 位。 */
@@ -373,9 +401,22 @@ public final class ChatSessions implements AutoCloseable {
     public HitlService.AnswerReceipt answer(String id, String requestId, String decision, String reason) {
         return hitl.answer(session(id(id)), requestId, decision, reason);
     }
-    /** 等待阶段取消；仅作用于指定 turn，不删除会话历史。 */
+    /** 等待阶段取消；仅作用于指定 turn，不删除会话历史。取消后清理对应 Run 凭证。 */
     public Map<String, String> cancelPending(String id, String turnId) {
-        return hitl.cancel(session(id(id)), turnId);
+        String sessionId = id(id);
+        String runId = null;
+        try {
+            AgentSession.Task pending = pendingTask(sessionId);
+            if (pending != null && turnId != null && turnId.equals(pending.turnId())) {
+                runId = pending.runId();
+                RunCredentialRegistry.clearCommand(pending.commandId(), activeUserId(), sessionId);
+            }
+        } catch (RuntimeException ignored) {
+            // 清理失败不阻断取消主路径
+        }
+        Map<String, String> result = hitl.cancel(session(sessionId), turnId);
+        if (runId != null) RunCredentialRegistry.clearRun(activeUserId(), sessionId, runId);
+        return result;
     }
     /**
      * HITL 变化标记：执行相关事实水位 + Inbox 水位 + 当前执行是否持有租约。
@@ -536,8 +577,50 @@ public final class ChatSessions implements AutoCloseable {
     /** 提交一次新任务：一条用户消息触发一次 run。 */
     public AgentSession.Task submit(String session, String requestId, String text) {
         validateText(text);
-        AgentSession.Task task = session(session).submit(id(requestId), text);
+        String userId = activeUserId();
+        String sessionId = id(session);
+        String request = id(requestId);
+        AgentSession agentSession = session(sessionId);
+        // 必须在 Harness submit（后台可能立刻跑工具）之前绑定 command 凭证；禁止 submit 后再 bind。
+        String rawToken = SubmitCredentialCapture.current().orElse(null);
+        if (rawToken != null && !rawToken.isBlank()) {
+            RunCredentialRegistry.bindCommand(request, userId, sessionId, rawToken);
+        }
+        AgentSession.Task task;
+        try {
+            task = agentSession.submit(request, text);
+        } catch (RuntimeException error) {
+            RunCredentialRegistry.clearCommand(request, userId, sessionId);
+            throw error;
+        }
+        try {
+            if (rawToken != null && !rawToken.isBlank()) {
+                // 若 Harness 已带回 runId，arm 内同步确认关联并移交；终态清理仍走后台监管。
+                RunCredentialLifecycle.arm(agentSession, userId, sessionId, task);
+            }
+        } catch (RuntimeException error) {
+            RunCredentialRegistry.clearCommand(task.commandId(), userId, sessionId);
+            if (task.runId() != null) RunCredentialRegistry.clearRun(userId, sessionId, task.runId());
+            throw error;
+        }
         return task;
+    }
+
+    /** Run 结束/失败后清理该 Run 凭证；不影响同会话其他活动 Run。 */
+    public void clearRunCredential(String sessionId, String runId) {
+        if (runId == null || runId.isBlank()) return;
+        RunCredentialRegistry.clearRun(activeUserId(), id(sessionId), runId);
+    }
+
+    /** 提交失败或命令被拒时清理尚未移交的 command 凭证。 */
+    public void clearCommandCredential(String sessionId, String commandId) {
+        RunCredentialRegistry.clearCommand(commandId, activeUserId(), id(sessionId));
+    }
+
+    /** @deprecated 使用 {@link #clearCommandCredential(String, String)}。 */
+    @Deprecated
+    public void clearCommandCredential(String commandId) {
+        RunCredentialRegistry.clearCommand(commandId);
     }
 
     /** 持久命令在接收时即有 commandId；runId 允许等调度启动后才生成。 */

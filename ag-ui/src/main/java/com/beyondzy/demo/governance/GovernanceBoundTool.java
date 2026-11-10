@@ -1,6 +1,7 @@
 package com.beyondzy.demo.governance;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionDecision;
@@ -77,8 +78,18 @@ public final class GovernanceBoundTool extends ToolBase {
 
     @Override
     public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+        // 工具执行前：仅当 Run 已绑定，或存在 Harness 确认的 command→run 关联时才移交；禁止猜测 pending。
+        RuntimeContext runtime = param == null ? null : param.getRuntimeContext();
+        RunCredentialRegistry.ensureRunBinding(runtime);
+        String rawToken = RunCredentialRegistry.resolve(runtime).orElse(null);
+        if (rawToken == null || rawToken.isBlank()) {
+            logger.warn("治理 invoke 缺少 Run 作用域用户凭证，工具 {}", getName());
+            return Mono.just(GovernanceResults.toToolResult(
+                    GovernanceInvokeResult.transport("UNAUTHENTICATED", "缺少出站用户会话凭证")));
+        }
         try {
-            GovernanceInvokeResult result = gateway.invoke(uri, snapshotId, param.getInput());
+            GovernanceInvokeResult result = OutboundUserCredential.call(rawToken, () ->
+                    gateway.invoke(uri, snapshotId, param.getInput()));
             return Mono.just(GovernanceResults.toToolResult(result));
         } catch (RuntimeException error) {
             logger.warn("治理 invoke 失败，工具 {}，异常 {}", getName(), error.getClass().getSimpleName());

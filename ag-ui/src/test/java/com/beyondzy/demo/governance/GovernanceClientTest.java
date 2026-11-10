@@ -31,7 +31,10 @@ class GovernanceClientTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/agent/snapshot/current", exchange -> {
             seen.add(new Recorded(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    exchange.getRequestHeaders().getFirst("X-Agent-Token"), ""));
+                    exchange.getRequestHeaders().getFirst("X-Agent-Token"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential-Type"),
+                    ""));
             byte[] body = snapshotJson().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
@@ -43,7 +46,10 @@ class GovernanceClientTest {
             invokes.incrementAndGet();
             String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             seen.add(new Recorded(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    exchange.getRequestHeaders().getFirst("X-Agent-Token"), request));
+                    exchange.getRequestHeaders().getFirst("X-Agent-Token"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential-Type"),
+                    request));
             byte[] body = """
                     {"traceId":"tr_1","callId":"call_1","outcome":"failed","code":"UPSTREAM_NOT_READY",
                      "message":"上游未就绪","agentMayRetry":true,"rebindRequired":false,"result":null,"extensions":{}}
@@ -85,10 +91,10 @@ class GovernanceClientTest {
             arguments.put("aliases", List.of("甲", "乙"));
             arguments.put("optional", null);
 
-            GovernanceInvokeResult result = client.invoke(
+            GovernanceInvokeResult result = OutboundUserCredential.call("user-session-token", () -> client.invoke(
                     "driver://mcp/tenant-a/cms-identity-invoke/identity.resolve",
                     "snap_live",
-                    arguments);
+                    arguments));
             assertEquals(GovernanceInvokeResult.Kind.FAILED, result.kind());
             assertEquals("UPSTREAM_NOT_READY", result.code());
             assertTrue(result.agentMayRetry());
@@ -100,8 +106,14 @@ class GovernanceClientTest {
             assertSame(nested, arguments.get("profile"));
             assertNull(((Map<?, ?>) arguments.get("profile")).get("note"));
 
+            Recorded get = seen.stream().filter(item -> "GET".equals(item.method())).findFirst().orElseThrow();
+            assertNull(get.trustedUser());
+            assertNull(get.trustedUserType());
+
             Recorded post = seen.stream().filter(item -> "POST".equals(item.method())).findFirst().orElseThrow();
             assertEquals("dev-agent-invoke-demo-token", post.token());
+            assertEquals("user-session-token", post.trustedUser());
+            assertEquals("opaque_session", post.trustedUserType());
             JsonNode body = JSON.readTree(post.body());
             assertEquals("driver://mcp/tenant-a/cms-identity-invoke/identity.resolve", body.get("uri").asText());
             assertEquals("snap_live", body.get("snapshotId").asText());
@@ -172,24 +184,28 @@ class GovernanceClientTest {
                     "http://127.0.0.1:" + server.getAddress().getPort() + "/",
                     "token-a",
                     Duration.ofSeconds(2));
-            GovernanceInvokeResult ok = client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of("name", "田沐阳"));
+            GovernanceInvokeResult ok = OutboundUserCredential.call("u-token", () ->
+                    client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of("name", "田沐阳")));
             assertEquals(GovernanceInvokeResult.Kind.COMPLETED, ok.kind());
             assertEquals("OK", ok.code());
             assertFalse(Boolean.TRUE.equals(ok.result().get("isError")));
 
             mode.set(1);
-            GovernanceInvokeResult denied = client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of());
+            GovernanceInvokeResult denied = OutboundUserCredential.call("u-token", () ->
+                    client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of()));
             assertEquals(GovernanceInvokeResult.Kind.REJECTED, denied.kind());
             assertEquals("AUTHZ_DENIED", denied.code());
             assertNull(denied.result());
 
             mode.set(2);
-            GovernanceInvokeResult uncertain = client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of());
+            GovernanceInvokeResult uncertain = OutboundUserCredential.call("u-token", () ->
+                    client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of()));
             assertEquals(GovernanceInvokeResult.Kind.UNCERTAIN, uncertain.kind());
             assertEquals("EXECUTION_UNCERTAIN", uncertain.code());
 
             mode.set(3);
-            GovernanceInvokeResult unauthorized = client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of());
+            GovernanceInvokeResult unauthorized = OutboundUserCredential.call("u-token", () ->
+                    client.invoke("driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of()));
             assertEquals(GovernanceInvokeResult.Kind.TRANSPORT, unauthorized.kind());
             assertEquals("UNAUTHENTICATED", unauthorized.code());
             assertTrue(unauthorized.message().contains("无效的 Agent 凭证"));
@@ -202,8 +218,8 @@ class GovernanceClientTest {
     void transportFailureIsNotASuccessfulResult() {
         GovernanceClient client = new GovernanceClient(
                 "http://127.0.0.1:9", "token-a", Duration.ofMillis(300));
-        GovernanceInvokeResult result = client.invoke(
-                "driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of("name", "田沐阳"));
+        GovernanceInvokeResult result = OutboundUserCredential.call("u-token", () -> client.invoke(
+                "driver://mcp/tenant-a/demo/identity.resolve", "snap", Map.of("name", "田沐阳")));
         assertEquals(GovernanceInvokeResult.Kind.TRANSPORT, result.kind());
         assertEquals("TRANSPORT_FAILURE", result.code());
         assertFalse(result.agentMayRetry());
@@ -230,5 +246,11 @@ class GovernanceClientTest {
                 """;
     }
 
-    private record Recorded(String method, String path, String token, String body) {}
+    private record Recorded(
+            String method,
+            String path,
+            String token,
+            String trustedUser,
+            String trustedUserType,
+            String body) {}
 }
