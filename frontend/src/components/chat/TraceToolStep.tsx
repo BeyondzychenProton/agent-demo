@@ -11,6 +11,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import type { ToolCardStatus } from "@/types/chat";
+import { formatDuration } from "@/components/chat/formatDuration";
 import { mapToolStatus, type TraceVisual } from "@/components/chat/toolStatusMap";
 
 function VisualIcon({ visual }: { visual: TraceVisual }) {
@@ -36,15 +37,18 @@ export function TraceToolStep({
   status,
   durationMs,
   defaultOpen,
+  icon,
   children,
 }: {
   title: string;
   status: ToolCardStatus;
   durationMs?: number;
   defaultOpen: boolean;
+  icon?: ReactNode;
   children?: ReactNode;
 }) {
   const presentation = mapToolStatus(status);
+  const durationLabel = formatDuration(durationMs);
   const [open, setOpen] = useState(defaultOpen);
   useEffect(() => {
     setOpen(defaultOpen);
@@ -63,15 +67,16 @@ export function TraceToolStep({
             <VisualIcon visual={presentation.visual} />
           </span>
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition group-open:rotate-90" />
+          {icon ? <span className="flex shrink-0 items-center">{icon}</span> : null}
           <span className="min-w-0 flex-1 truncate font-medium text-foreground/95">{title}</span>
-          {durationMs != null ? (
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{durationMs}ms</span>
+          {durationLabel != null ? (
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{durationLabel}</span>
           ) : null}
           <span className={cn("shrink-0 text-[11px] font-medium", LABEL_STYLE[presentation.visual])}>
             {presentation.label}
           </span>
         </summary>
-        {children ? <div className="space-y-3 pb-2 pl-5 pt-1">{children}</div> : null}
+        {open && children ? <div className="space-y-3 pb-2 pl-5 pt-1">{children}</div> : null}
       </details>
     </div>
   );
