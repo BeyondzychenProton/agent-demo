@@ -157,6 +157,8 @@ function stateStatus(state: "preparing" | "running" | "error" | "stopped" | "ok"
 }
 
 function toolTitle(card: ToolCardViewModel): string {
+  if (card.name === "web_search") return "网页搜索";
+  if (card.name === "web_fetch" || card.name === "fetch_url") return "网页获取";
   if (/bash|shell|command|pwsh|exec/i.test(card.name) || card.name === "write_note") return "运行命令";
   if (/fetch|web|http/i.test(card.name)) return "网页获取";
   if (/search|grep|glob/i.test(card.name)) return "搜索";
@@ -166,7 +168,7 @@ function toolTitle(card: ToolCardViewModel): string {
 function toolIcon(card: ToolCardViewModel): ReactNode {
   const title = toolTitle(card);
   if (title === "运行命令") return <Terminal className="size-3.5" />;
-  if (title === "网页获取" || title === "搜索") return <Sparkles className="size-3.5" />;
+  if (title === "网页搜索" || title === "网页获取" || title === "搜索") return <Sparkles className="size-3.5" />;
   return <Wrench className="size-3.5" />;
 }
 

@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --import ./tests/resolve-ts.mjs --experimental-strip-types --test tests/*.test.ts",
     "test:e2e": "playwright test"
   },
   "type": "module",

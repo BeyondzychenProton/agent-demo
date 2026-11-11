@@ -1,8 +1,10 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2";
 import { SoftMessageBubble } from "@/components/chat/SoftMessageBubble";
+import { groupTranscriptRows, type TranscriptRow } from "@/components/chat/groupTranscriptRows";
 import { messageChrome } from "@/components/chat/messageChrome";
+import { ProcessGroup } from "@/components/chat/ProcessGroup";
 import { isNearBottom, stickScrollToBottom } from "@/components/chat/scrollFollow";
 import { ToolCardView } from "@/components/ToolCardView";
 import { useThreadView, type ViewItem } from "@/readmodel/threadStore";
@@ -15,9 +17,13 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
   const programmatic = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const scrollFrame = useRef<number | undefined>(undefined);
+  const rows = useMemo(
+    () => groupTranscriptRows(view.items, view.status?.activeRun ?? null),
+    [view.items, view.status?.activeRun],
+  );
   const virtual = useVirtualizer({
-    count: view.items.length, getScrollElement: () => scroll.current, estimateSize: () => 140,
-    overscan: 4, getItemKey: index => view.items[index].itemId,
+    count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 140,
+    overscan: 4, getItemKey: index => rowKey(rows[index]!),
   });
   const totalHeight = virtual.getTotalSize();
   const tail = view.items.length ? view.items[view.items.length - 1] : undefined;
@@ -30,14 +36,14 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
   }, [view.submission?.requestId]);
   const load = useCallback(async () => {
     const first = virtual.getVirtualItems().find(item => item.end >= (scroll.current?.scrollTop ?? 0));
-    if (first) anchor.current = { id: view.items[first.index].itemId, offset: (scroll.current?.scrollTop ?? 0) - first.start };
+    if (first) anchor.current = { id: rowKey(rows[first.index]!), offset: (scroll.current?.scrollTop ?? 0) - first.start };
     following.current = false;
     await view.loadMore();
-  }, [virtual, view.items, view.loadMore]);
+  }, [virtual, rows, view.loadMore]);
   useEffect(() => {
     const saved = anchor.current;
     if (saved && !view.fetching) {
-      const index = view.items.findIndex(item => item.itemId === saved.id);
+      const index = rows.findIndex(row => rowKey(row) === saved.id);
       if (index >= 0) {
         const frame = requestAnimationFrame(() => {
           const offset = virtual.getOffsetForIndex(index, "start")?.[0] ?? 0;
@@ -63,7 +69,7 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
       scrollFrame.current = frame;
       return () => cancelAnimationFrame(frame);
     }
-  }, [view.items, view.fetching, virtual, totalHeight, tailVersion]);
+  }, [rows, view.fetching, virtual, totalHeight, tailVersion]);
   return <div className="flex h-full min-h-0 flex-col gap-1">
     <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-muted-foreground">
       {view.hasMore && <button onClick={() => void load()} disabled={view.fetching} className="underline underline-offset-2">{view.fetching ? "加载中…" : "加载更早"}</button>}
@@ -89,12 +95,42 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
       <div style={{ height: virtual.getTotalSize(), position: "relative" }}>
         {virtual.getVirtualItems().map(row => <div key={row.key} data-index={row.index} ref={virtual.measureElement}
           style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)` }}>
-          <div className="pb-5"><TranscriptItem entry={view.items[row.index]} threadId={threadId} onChanged={view.refresh} /></div>
+          <div className="pb-5">
+            <TranscriptRowView row={rows[row.index]!} threadId={threadId} onChanged={view.refresh} />
+          </div>
         </div>)}
       </div>
     </div>
   </div>;
 }
+
+function rowKey(row: TranscriptRow): string {
+  return row.kind === "item" ? row.entry.itemId : row.key;
+}
+
+const TranscriptRowView = memo(function TranscriptRowView({
+  row, threadId, onChanged,
+}: {
+  row: TranscriptRow; threadId: string; onChanged: () => Promise<void>;
+}) {
+  if (row.kind === "item") {
+    return <TranscriptItem entry={row.entry} threadId={threadId} onChanged={onChanged} />;
+  }
+  return (
+    <ProcessGroup
+      title={row.title}
+      closed={row.closed}
+      activity={row.activity}
+      durationMs={row.durationMs}
+      failed={row.failed}
+      stopped={row.stopped}
+    >
+      {row.members.map((entry) => (
+        <TranscriptItem key={entry.itemId} entry={entry} threadId={threadId} onChanged={onChanged} />
+      ))}
+    </ProcessGroup>
+  );
+});
 
 export const TranscriptItem = memo(function TranscriptItem({ entry, threadId, onChanged }: {
   entry: ViewItem; threadId: string; onChanged: () => Promise<void>;
