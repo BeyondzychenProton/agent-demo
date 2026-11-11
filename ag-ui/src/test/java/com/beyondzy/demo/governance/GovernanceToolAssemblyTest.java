@@ -397,6 +397,28 @@ class GovernanceToolAssemblyTest {
     }
 
     @Test
+    void systemPromptAppendsGovernanceSkillsSection() {
+        String withSkills = ChatSessions.systemPrompt(true, "\n## Governance skills\n查询工单时调用 get_ticket。\n");
+        assertTrue(withSkills.contains("多名候选人"));
+        assertTrue(withSkills.contains("查询工单时调用 get_ticket。"));
+        assertTrue(withSkills.contains("Governance skills"));
+        assertEquals(ChatSessions.systemPrompt(false), ChatSessions.systemPrompt(false, "   "));
+    }
+
+    @Test
+    void mountExposesUriToRegisteredNameMapForSkillBindings() {
+        String ticketUri = "driver://mcp/tenant-a/ticketing/get_ticket";
+        RecordingGateway gateway = gateway(snapshot("snap_skills", List.of(tool("get_ticket", ticketUri, strictSchema()))));
+        Toolkit toolkit = new Toolkit();
+        GovernanceToolMount mount = new GovernanceToolMount(toolkit, gateway);
+        mount.install(gateway.snapshot);
+
+        Map<String, String> byUri = mount.registeredNameByUri();
+        assertEquals("get_ticket", byUri.get(ticketUri));
+        assertEquals(1, byUri.size());
+    }
+
+    @Test
     void harnessUsesBoundSnapshotAndReopenKeepsHistory(@TempDir Path workspace) {
         RecordingGateway gateway = gateway(snapshot("snap_session", List.of(tool("identity.resolve", URI, strictSchema()))));
         gateway.response = GovernanceInvokeResult.completed(
@@ -607,6 +629,11 @@ class GovernanceToolAssemblyTest {
         public GovernanceInvokeResult invoke(String uri, String snapshotId, Map<String, Object> arguments) {
             calls.add(new Invocation(uri, snapshotId, new LinkedHashMap<>(arguments)));
             return response;
+        }
+
+        @Override
+        public String fetchInstructions(String snapshotId, String skillId) {
+            return "";
         }
     }
 

@@ -80,6 +80,12 @@ public final class AguiService {
         governance.put("boundToolsMounted", sessions.governanceBoundToolsMounted());
         governance.put("snapshotId", sessions.governanceSnapshotId());
         governance.put("registeredTools", sessions.governanceRegisteredTools());
+        var runtime = sessions.governanceRuntimeStatus();
+        governance.put("adoptedEtag", runtime.adoptedEtag());
+        governance.put("lastRefreshAt", runtime.lastRefreshAt() == null ? null : runtime.lastRefreshAt().toString());
+        governance.put("lastRefreshFailure", runtime.lastFailure());
+        governance.put("autoRefreshEnabled", runtime.autoRefreshEnabled());
+        governance.put("pollIntervalSeconds", 60);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("version", "2.0.0");

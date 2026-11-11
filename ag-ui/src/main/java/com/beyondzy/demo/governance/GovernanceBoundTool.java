@@ -24,6 +24,7 @@ public final class GovernanceBoundTool extends ToolBase {
             "多名候选人先向用户确认；未找到要如实说明；调用被拒绝、绑定失效或失败时说明未成功，不要编造。";
 
     private final GovernanceGateway gateway;
+    private final boolean requireUserCredential;
     private final String snapshotId;
     private final String uri;
     private final String bindingId;
@@ -35,6 +36,11 @@ public final class GovernanceBoundTool extends ToolBase {
             String registeredName,
             GovernanceSnapshot snapshot,
             GovernanceToolView tool) {
+        this(gateway, registeredName, snapshot, tool, true);
+    }
+
+    GovernanceBoundTool(GovernanceGateway gateway, String registeredName, GovernanceSnapshot snapshot,
+            GovernanceToolView tool, boolean requireUserCredential) {
         super(ToolBase.builder()
                 .name(registeredName)
                 .description(describe(tool))
@@ -42,6 +48,7 @@ public final class GovernanceBoundTool extends ToolBase {
                 .readOnly(read(tool.riskLabel()))
                 .concurrencySafe(true));
         this.gateway = gateway;
+        this.requireUserCredential = requireUserCredential;
         this.snapshotId = snapshot.snapshotId();
         this.uri = tool.uri();
         this.bindingId = tool.bindingId();
@@ -82,14 +89,15 @@ public final class GovernanceBoundTool extends ToolBase {
         RuntimeContext runtime = param == null ? null : param.getRuntimeContext();
         RunCredentialRegistry.ensureRunBinding(runtime);
         String rawToken = RunCredentialRegistry.resolve(runtime).orElse(null);
-        if (rawToken == null || rawToken.isBlank()) {
+        if (requireUserCredential && (rawToken == null || rawToken.isBlank())) {
             logger.warn("治理 invoke 缺少 Run 作用域用户凭证，工具 {}", getName());
             return Mono.just(GovernanceResults.toToolResult(
                     GovernanceInvokeResult.transport("UNAUTHENTICATED", "缺少出站用户会话凭证")));
         }
         try {
-            GovernanceInvokeResult result = OutboundUserCredential.call(rawToken, () ->
-                    gateway.invoke(uri, snapshotId, param.getInput()));
+            GovernanceInvokeResult result = requireUserCredential
+                    ? OutboundUserCredential.call(rawToken, () -> gateway.invoke(uri, snapshotId, param.getInput()))
+                    : gateway.invoke(uri, snapshotId, param.getInput());
             return Mono.just(GovernanceResults.toToolResult(result));
         } catch (RuntimeException error) {
             logger.warn("治理 invoke 失败，工具 {}，异常 {}", getName(), error.getClass().getSimpleName());

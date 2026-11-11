@@ -8,9 +8,21 @@ public record GovernanceSnapshot(
         String appId,
         String subject,
         String snapshotId,
-        List<GovernanceToolView> tools) {
+        List<GovernanceToolView> tools,
+        List<GovernanceSkillView> skills) {
 
     public GovernanceSnapshot {
         tools = tools == null ? List.of() : List.copyOf(tools);
+        skills = skills == null ? List.of() : List.copyOf(skills);
+    }
+
+    /** 兼容仅工具装配的旧调用点。 */
+    public GovernanceSnapshot(
+            String tenantId,
+            String appId,
+            String subject,
+            String snapshotId,
+            List<GovernanceToolView> tools) {
+        this(tenantId, appId, subject, snapshotId, tools, List.of());
     }
 }

@@ -2,11 +2,18 @@ package com.beyondzy.demo.session;
 
 import com.beyondzy.demo.auth.support.SubmitCredentialCapture;
 import com.beyondzy.demo.auth.support.UserContext;
+import com.beyondzy.demo.governance.AssemblyBindingStore;
+import com.beyondzy.demo.governance.GovernanceAssemblySupport;
+import com.beyondzy.demo.governance.GovernanceBoundTool;
 import com.beyondzy.demo.governance.GovernanceGateway;
+import com.beyondzy.demo.governance.GovernanceRuntimeStatus;
+import com.beyondzy.demo.governance.GovernanceSnapshot;
+import com.beyondzy.demo.governance.GovernanceSnapshotFetch;
+import com.beyondzy.demo.governance.GovernanceToolMount;
+import com.beyondzy.demo.governance.HarnessGenerationPool;
+import com.beyondzy.demo.governance.PreparedGovernanceAssembly;
 import com.beyondzy.demo.governance.RunCredentialLifecycle;
 import com.beyondzy.demo.governance.RunCredentialRegistry;
-import com.beyondzy.demo.governance.GovernanceSnapshot;
-import com.beyondzy.demo.governance.GovernanceToolMount;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
@@ -25,6 +32,7 @@ import io.agentscope.core.session.SessionLogStore;
 import com.beyondzy.demo.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
 import com.beyondzy.demo.readmodel.ChatHistory;
+import com.beyondzy.demo.readmodel.NoopReadModel;
 import com.beyondzy.demo.readmodel.ProjectionService;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.readmodel.ThreadView;
@@ -33,12 +41,18 @@ import com.beyondzy.demo.tools.DocSearchTools;
 import com.beyondzy.demo.tools.NoteTools;
 import com.beyondzy.demo.tools.OrderTools;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,13 +60,26 @@ import org.slf4j.LoggerFactory;
  * 会话管理器：单个本地进程持有执行；HTTP 接收命令，SSE 只观察持久事实。
  *
  * <p>本类提供快照、提交、增量与首轮工具审批；steer、inject 与执行中取消不在本轮范围。
+ *
+ * <p>治理装配按 run 绑定：新任务使用最新成功装配；进行中/待审批任务留在提交时的 Harness 一代。
+ * 排队任务在 submit 时绑定，同一会话未收口前不会跨代。旧 Harness 仅在引用归零后关闭。
  */
 public final class ChatSessions implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(ChatSessions.class);
     private static final String AGENT = "session-chat";
+    private static final long GOVERNANCE_POLL_SECONDS = 60L;
     private final HitlService hitl = new HitlService();
-    private final HarnessAgent agent;
-    private final GovernanceToolMount governanceMount;
+    private final Object agentLock = new Object();
+    private final HarnessGenerationPool harnessPool;
+    private final AssemblyBindingStore assemblyBindings;
+    private final GovernanceGateway governance;
+    private final Model model;
+    private final Path workspace;
+    private final AtomicReference<String> adoptedEtag = new AtomicReference<>();
+    private final AtomicReference<Instant> lastRefreshAt = new AtomicReference<>();
+    private final AtomicReference<String> lastRefreshFailure = new AtomicReference<>();
+    private final ScheduledExecutorService governanceRefreshExecutor;
+    private final ExecutorService assemblyLifecycleExecutor;
     private final SessionLogStore store;
     private final String defaultUserId;
     private final AgentSessionService agentSessions;
@@ -113,6 +140,32 @@ public final class ChatSessions implements AutoCloseable {
         this(workspace, model, null, "local-user", null, null, null, null);
     }
 
+    /**
+     * 单测/本地装配入口：使用给定 SessionLogStore 与可选治理网关，读模型为 no-op（不碰 MySQL）。
+     */
+    public ChatSessions(
+            Path workspace, Model model, SessionLogStore sessionLogStore, GovernanceGateway governance) {
+        this(workspace, model, sessionLogStore, "local-user", null, NoopReadModel.INSTANCE, null, governance);
+    }
+
+    /** 同上，可指定默认 userId（仍可由 {@link UserContext} 覆盖）。 */
+    public ChatSessions(
+            Path workspace,
+            Model model,
+            SessionLogStore sessionLogStore,
+            String defaultUserId,
+            GovernanceGateway governance) {
+        this(
+                workspace,
+                model,
+                sessionLogStore,
+                defaultUserId == null ? "local-user" : defaultUserId,
+                null,
+                NoopReadModel.INSTANCE,
+                null,
+                governance);
+    }
+
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
@@ -134,79 +187,164 @@ public final class ChatSessions implements AutoCloseable {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
+        this.model = model;
+        this.workspace = workspace.toAbsolutePath();
+        this.governance = governance;
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
         store = sessionLogStore;
-        GovernanceSnapshot initialGovernance = null;
+        this.assemblyBindings = new AssemblyBindingStore(this.workspace);
+        this.harnessPool = new HarnessGenerationPool(this::buildHarness, agentLock);
+        this.assemblyLifecycleExecutor = Executors.newCachedThreadPool(r -> {
+            Thread thread = new Thread(r, "assembly-lifecycle");
+            thread.setDaemon(true);
+            return thread;
+        });
+        PreparedGovernanceAssembly initial = null;
         if (governance != null) {
             try {
-                initialGovernance = governance.currentSnapshot();
+                GovernanceSnapshotFetch fetch = governance.fetchCurrent(null);
+                if (!fetch.notModified() && fetch.snapshot() != null) {
+                    initial = GovernanceAssemblySupport.prepare(
+                            this.workspace, governance, fetch.snapshot(), fetch.etag());
+                    adoptedEtag.set(fetch.etag());
+                    lastRefreshAt.set(Instant.now());
+                }
             } catch (RuntimeException error) {
+                lastRefreshFailure.set(error.toString());
                 logger.warn("首次拉取治理 Snapshot 失败，本地会话继续可用：{}", error.toString());
             }
         }
-        // 演示工具：注册到框架 Toolkit，执行仍由 HarnessAgent 驱动（大纲 M7 / 6.1.9）
-        Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(new OrderTools());
-        toolkit.registerTool(new DocSearchTools());
-        toolkit.registerTool(new NoteTools(workspace.toAbsolutePath()));
-        GovernanceToolMount mount = governance == null ? null : new GovernanceToolMount(toolkit, governance);
-        if (mount != null && initialGovernance != null) {
-            try {
-                mount.install(initialGovernance);
-            } catch (RuntimeException error) {
-                logger.warn("安装治理工具失败，本地会话继续可用：{}", error.toString());
-            }
-        }
-        boolean governanceToolsMounted = mount != null
-                && mount.snapshotId() != null
-                && !mount.registeredNames().isEmpty();
-        if (governance != null && !governanceToolsMounted) {
+        harnessPool.bootstrap(initial);
+        GovernanceToolMount governanceMount = harnessPool.currentMount();
+        if (governance != null && (governanceMount == null || governanceMount.snapshotId() == null
+                || governanceMount.registeredNames().isEmpty())) {
             logger.warn(
                     "治理客户端已配置，但 BoundTool 未挂载（snapshotId={} tools={}）；Demo 仅有本地工具",
-                    mount == null ? null : mount.snapshotId(),
-                    mount == null ? List.of() : mount.registeredNames());
-        } else if (governanceToolsMounted) {
+                    governanceMount == null ? null : governanceMount.snapshotId(),
+                    governanceMount == null ? List.of() : governanceMount.registeredNames());
+        } else if (governanceMount != null && !governanceMount.registeredNames().isEmpty()) {
             logger.info(
                     "治理 BoundTool 已挂载 snapshotId={} tools={}",
-                    mount.snapshotId(),
-                    mount.registeredNames());
+                    governanceMount.snapshotId(),
+                    governanceMount.registeredNames());
         }
-        agent =
-                HarnessAgent.builder()
-                        .name("Session Chat")
-                        .agentId(AGENT)
-                        .model(model)
-                        // 提示词只在真正挂上治理工具时启用，避免“有文案无工具”
-                        .sysPrompt(systemPrompt(governanceToolsMounted))
-                        .workspace(workspace.toAbsolutePath())
-                        .sessionLogStore(store)
-                        .toolkit(toolkit)
-                        // 查询允许直接执行，写入必须 ASK；真正授权来自确认结果，不能以聊天中的“批准”代替。
-                        .permissionContext(approvalPermissions())
-                        // 关闭本 demo 用不到的能力，保持最小
-                        .disableShellTool()
-                        .disableFilesystemTools()
-                        .disableWebTools()
-                        .disableSubagents()
-                        .disableDynamicSubagents()
-                        .disableDynamicSkills()
-                        .disableDefaultWorkspaceSkills()
-                        .disableMemoryTools()
-                        .disableMemoryHooks()
-                        .disableToolsConfig()
-                        .disableWorkspaceContext()
-                        .disableAtPathExpansion()
-                        .maxIters(8)
-                        .build();
-        // 治理工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
-        governanceMount = mount;
         catalog = new ThreadCatalog(this::list, this::log, displayIndex);
         displayViews = new DisplayViewStore(displayIndex);
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
         List<String> existing = list();
         existing.forEach(id -> session(id).start());
         projection = new ProjectionService(this::log, readModelPersistence);
+        if (governance != null) {
+            governanceRefreshExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread thread = new Thread(r, "governance-snapshot-refresh");
+                thread.setDaemon(true);
+                return thread;
+            });
+            governanceRefreshExecutor.scheduleWithFixedDelay(
+                    this::safeRefreshGovernanceAssembly,
+                    GOVERNANCE_POLL_SECONDS,
+                    GOVERNANCE_POLL_SECONDS,
+                    TimeUnit.SECONDS);
+        } else {
+            governanceRefreshExecutor = null;
+        }
+    }
+
+    private HarnessAgent buildHarness(PreparedGovernanceAssembly assembly) {
+        Toolkit toolkit;
+        String skillsSection = "";
+        boolean governanceToolsMounted = false;
+        if (assembly != null) {
+            toolkit = assembly.toolkit();
+            skillsSection = assembly.skillsSection() == null ? "" : assembly.skillsSection();
+            governanceToolsMounted = assembly.mount() != null
+                    && assembly.mount().snapshotId() != null
+                    && !assembly.mount().registeredNames().isEmpty();
+        } else {
+            toolkit = new Toolkit();
+            toolkit.registerTool(new OrderTools());
+            toolkit.registerTool(new DocSearchTools());
+            toolkit.registerTool(new NoteTools(workspace));
+        }
+        return HarnessAgent.builder()
+                .name("Session Chat")
+                .agentId(AGENT)
+                .model(model)
+                .sysPrompt(systemPrompt(governanceToolsMounted, skillsSection))
+                .workspace(workspace)
+                .sessionLogStore(store)
+                .toolkit(toolkit)
+                .permissionContext(approvalPermissions())
+                .disableShellTool()
+                .disableFilesystemTools()
+                .disableWebTools()
+                .disableSubagents()
+                .disableDynamicSubagents()
+                .disableDynamicSkills()
+                .disableDefaultWorkspaceSkills()
+                .disableMemoryTools()
+                .disableMemoryHooks()
+                .disableToolsConfig()
+                .disableWorkspaceContext()
+                .disableAtPathExpansion()
+                .maxIters(8)
+                .build();
+    }
+
+    /**
+     * 低频补齐 / 提交前：条件拉取并准备新装配供后续新 run 使用。
+     *
+     * <p>不再要求全局空闲；进行中任务继续挂在旧一代 Harness。提交与本方法共用 {@link #agentLock}。
+     */
+    public void refreshGovernanceAssembly() {
+        if (governance == null) return;
+        synchronized (agentLock) {
+            refreshGovernanceAssemblyUnlocked();
+        }
+    }
+
+    private void refreshGovernanceAssemblyUnlocked() {
+        if (governance == null) return;
+        try {
+            String validator = adoptedEtag.get();
+            GovernanceSnapshotFetch fetch = governance.fetchCurrent(validator);
+            lastRefreshAt.set(Instant.now());
+            if (fetch.notModified()) {
+                lastRefreshFailure.set(null);
+                logger.debug("治理装配条件读取 304 notModified validator={}", validator);
+                return;
+            }
+            if (fetch.snapshot() == null) {
+                throw new IllegalStateException("条件读取返回空 Snapshot");
+            }
+            PreparedGovernanceAssembly prepared = GovernanceAssemblySupport.prepare(
+                    workspace, governance, fetch.snapshot(), fetch.etag());
+            // 先准备成功再更新校验值与 current，避免装配失败后误 304。
+            harnessPool.adopt(prepared);
+            adoptedEtag.set(fetch.etag());
+            lastRefreshFailure.set(null);
+        } catch (RuntimeException error) {
+            lastRefreshFailure.set(error.toString());
+            logger.warn("刷新治理装配失败，继续使用已成功装配：{}", error.toString());
+        }
+    }
+
+    private void safeRefreshGovernanceAssembly() {
+        try {
+            refreshGovernanceAssembly();
+        } catch (RuntimeException error) {
+            logger.warn("定时刷新治理装配异常：{}", error.toString());
+        }
+    }
+
+    public GovernanceRuntimeStatus governanceRuntimeStatus() {
+        return new GovernanceRuntimeStatus(
+                governanceSnapshotId(),
+                adoptedEtag.get(),
+                lastRefreshAt.get(),
+                lastRefreshFailure.get(),
+                governance != null && governanceRefreshExecutor != null);
     }
 
     /**
@@ -233,25 +371,157 @@ public final class ChatSessions implements AutoCloseable {
      * 工具是否真的出现仍由 Snapshot 决定，闲聊不因此强制调用工具。
      */
     public static String systemPrompt(boolean governanceTools) {
+        return systemPrompt(governanceTools, "");
+    }
+
+    /**
+     * @param skillsSection 治理 Snapshot skills[] 解析后的提示词片段；空白则不追加
+     */
+    public static String systemPrompt(boolean governanceTools, String skillsSection) {
         String base = "你是一个简洁的聊天助手，始终用与用户相同的语言回复。"
                 + "需要查订单、检索文档或记录笔记时，优先调用已提供的工具，"
                 + "不要编造工具返回的数据。";
-        if (!governanceTools) return base;
-        return base
-                + "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
-                + "出现多名候选人时先向用户确认；没有找到时如实说明。"
-                + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
-                + "普通闲聊不要调用工具。";
+        String prompt = governanceTools
+                ? base
+                        + "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
+                        + "出现多名候选人时先向用户确认；没有找到时如实说明。"
+                        + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
+                        + "普通闲聊不要调用工具。"
+                : base;
+        if (skillsSection != null && !skillsSection.isBlank()) {
+            prompt = prompt + skillsSection;
+        }
+        return prompt;
     }
-
-    /** 进程启动时装配的治理 Snapshot id；未装配则为 null。更新工具需重启进程。 */
+    /** 当前可供新 run 使用的治理 Snapshot id；未装配则为 null。 */
     public String governanceSnapshotId() {
-        return governanceMount == null ? null : governanceMount.snapshotId();
+        return harnessPool.currentSnapshotId();
     }
 
-    /** 启动时装入 Toolkit 的治理 BoundTool 注册名；未挂载时为空列表。 */
+    /** 当前新 run 装配中的治理 BoundTool 注册名；未挂载时为空列表。 */
     public List<String> governanceRegisteredTools() {
-        return governanceMount == null ? List.of() : governanceMount.registeredNames();
+        GovernanceToolMount mount = harnessPool.currentMount();
+        return mount == null ? List.of() : mount.registeredNames();
+    }
+
+    /** 会话当前持久的装配绑定 snapshotId（供恢复与回归断言）。 */
+    public String boundAssemblySnapshotId(String sessionId) {
+        return assemblyBindings.snapshotId(sessionKey(id(sessionId)));
+    }
+
+    /** 仍存活（未关闭）的 Harness 代 snapshotId 列表。 */
+    public List<String> liveHarnessSnapshotIds() {
+        return harnessPool.liveSnapshotIds();
+    }
+
+    /** 指定 snapshot 对应的一代是否已关闭。 */
+    public boolean harnessGenerationClosed(String snapshotId) {
+        return harnessPool.isGenerationClosed(snapshotId);
+    }
+
+    /** 会话当前 Harness 代上治理工具钉住的 snapshotId；无该工具时返回 null。 */
+    public String boundToolSnapshotId(String sessionId, String toolName) {
+        HarnessGenerationPool.Generation gen = harnessPool.generationForSession(sessionKey(id(sessionId)));
+        if (gen == null || gen.agent() == null || toolName == null) return null;
+        Object tool = gen.agent().getToolkit().getTool(toolName);
+        if (tool instanceof GovernanceBoundTool bound) return bound.snapshotId();
+        return null;
+    }
+
+    /**
+     * 测试/诊断：模拟过期收口回调，仅当绑定仍是 {@code expectedSnapshotId} 时才清除。
+     *
+     * @return 是否实际清除了持久绑定
+     */
+    public boolean tryClearAssemblyBinding(String sessionId, String expectedSnapshotId) {
+        String key = sessionKey(id(sessionId));
+        synchronized (agentLock) {
+            HarnessGenerationPool.Generation expected = harnessPool.peekSessionBinding(key);
+            if (expected != null
+                    && expectedSnapshotId != null
+                    && !expectedSnapshotId.equals(expected.snapshotId())) {
+                expected = null; // 调用方声称的版本与内存绑定不一致时，只做持久层 clearIfMatch
+            }
+            if (expected != null && expectedSnapshotId != null && expectedSnapshotId.equals(expected.snapshotId())) {
+                harnessPool.onTaskSettled(key, expected, this::sessionBusyOnGeneration);
+            }
+            return assemblyBindings.clearIfMatch(key, expectedSnapshotId);
+        }
+    }
+
+    private String sessionKey(String sessionId) {
+        return activeUserId() + "\0" + id(sessionId);
+    }
+
+    private boolean sessionBusyOnGeneration(HarnessGenerationPool.Generation generation, String key) {
+        if (harnessPool.hasEnqueueHold(key)) return true;
+        int sep = key.indexOf('\0');
+        String userId = sep < 0 ? activeUserId() : key.substring(0, sep);
+        String sessionId = sep < 0 ? key : key.substring(sep + 1);
+        RuntimeContext ctx = RuntimeContext.builder().userId(userId).sessionId(id(sessionId)).build();
+        try {
+            AgentSession agentSession = generation.session(ctx);
+            if (agentSession.pending() != null && !agentSession.pending().isEmpty()) return true;
+        } catch (RuntimeException ignored) {
+            // 尚未 start
+        }
+        AgentSession.Task pending = pendingTaskFromStore(userId, sessionId);
+        if (pending == null) return false;
+        String status = pending.status();
+        return "queued".equals(status) || "running".equals(status);
+    }
+
+    private AgentSession.Task pendingTaskFromStore(String userId, String sessionId) {
+        try {
+            var key = new io.agentscope.core.session.SessionKey(userId, AGENT, id(sessionId));
+            SessionLog log = store.open(
+                    key, RuntimeContext.builder().userId(userId).sessionId(id(sessionId)).build());
+            SessionLog inbox = log.inbox();
+            long inboxSeq = inbox.head().seq();
+            if (inboxSeq == 0) return null;
+            SessionInbox.Command last = null;
+            Map<String, String> turnState = new HashMap<>();
+            Map<String, String> openedRun = new HashMap<>();
+            var rejected = new HashSet<String>();
+            for (SessionEvent event : inbox.scan(0, inboxSeq)) {
+                switch (event.type()) {
+                    case "inbox/accepted" -> {
+                        var command = event.payload(SessionInbox.Command.class);
+                        if (!command.execution()) break;
+                        last = command;
+                        turnState.put(command.turnId(), "queued");
+                    }
+                    case "inbox/opened" -> {
+                        if (event.turnId() == null) break;
+                        turnState.put(event.turnId(), "open");
+                        openedRun.put(event.turnId(), event.executionRunId());
+                    }
+                    case "inbox/closed" -> {
+                        if (event.turnId() != null) turnState.put(event.turnId(), "closed");
+                    }
+                    case "inbox/rejected" ->
+                            rejected.add(String.valueOf(event.data().get("commandId")));
+                    default -> { }
+                }
+            }
+            if (last == null || rejected.contains(last.id())) return null;
+            String state = turnState.get(last.turnId());
+            if ("queued".equals(state))
+                return new AgentSession.Task(last.id(), last.turnId(), null, "queued", null);
+            if ("open".equals(state)) {
+                var head = log.head();
+                boolean active = head.owner() != null && head.leaseUntil() > System.currentTimeMillis();
+                return new AgentSession.Task(
+                        last.id(),
+                        last.turnId(),
+                        openedRun.get(last.turnId()),
+                        active ? "running" : "interrupted",
+                        null);
+            }
+            return null;
+        } catch (RuntimeException error) {
+            return null;
+        }
     }
 
     /** 是否已挂载至少一个治理 BoundTool（供诊断与 /info 探测）。 */
@@ -289,7 +559,27 @@ public final class ChatSessions implements AutoCloseable {
 
     AgentSession session(String id) {
         assertAccessible(id);
-        return agent.session(context(id));
+        String key = sessionKey(id);
+        // 审批恢复：若持久绑定指向历史 Snapshot，确保该代 Harness 仍可用。
+        String boundSnap = assemblyBindings.snapshotId(key);
+        if (boundSnap != null && governance != null) {
+            try {
+                harnessPool.requireGeneration(boundSnap, this::rebuildAssembly);
+            } catch (HarnessGenerationPool.AssemblyRecoveryException error) {
+                throw new IllegalStateException(
+                        "无法恢复原 Snapshot 绑定 snapshotId=" + boundSnap + "；请结束任务或重新发起", error);
+            } catch (RuntimeException error) {
+                throw new IllegalStateException(
+                        "恢复原 Snapshot 装配失败 snapshotId=" + boundSnap + "：" + error.getMessage(), error);
+            }
+        }
+        HarnessGenerationPool.Generation gen = harnessPool.generationForSession(key);
+        return gen.session(context(id));
+    }
+
+    private PreparedGovernanceAssembly rebuildAssembly(String snapshotId) {
+        GovernanceSnapshot snapshot = governance.fetchSnapshot(snapshotId);
+        return GovernanceAssemblySupport.prepare(workspace, governance, snapshot, snapshotId);
     }
 
     /** 列出本 agent 下所有已落盘的会话 id。 */
@@ -580,7 +870,20 @@ public final class ChatSessions implements AutoCloseable {
         String userId = activeUserId();
         String sessionId = id(session);
         String request = id(requestId);
-        AgentSession agentSession = session(sessionId);
+        String key = sessionKey(sessionId);
+        AgentSession agentSession;
+        HarnessGenerationPool.Generation gen;
+        synchronized (agentLock) {
+            // 与轮询刷新共用锁：任务绑定恰好一份已准备完成的装配。
+            refreshGovernanceAssemblyUnlocked();
+            assertAccessible(sessionId);
+            gen = harnessPool.bindForSubmit(key, this::sessionBusyOnGeneration);
+            agentSession = gen.session(context(sessionId));
+            agentSession.start();
+            if (gen.snapshotId() != null) {
+                assemblyBindings.bind(key, gen.snapshotId());
+            }
+        }
         // 必须在 Harness submit（后台可能立刻跑工具）之前绑定 command 凭证；禁止 submit 后再 bind。
         String rawToken = SubmitCredentialCapture.current().orElse(null);
         if (rawToken != null && !rawToken.isBlank()) {
@@ -591,19 +894,62 @@ public final class ChatSessions implements AutoCloseable {
             task = agentSession.submit(request, text);
         } catch (RuntimeException error) {
             RunCredentialRegistry.clearCommand(request, userId, sessionId);
+            synchronized (agentLock) {
+                harnessPool.abandonEnqueue(key, this::sessionBusyOnGeneration);
+            }
             throw error;
+        }
+        synchronized (agentLock) {
+            harnessPool.confirmEnqueued(key);
         }
         try {
             if (rawToken != null && !rawToken.isBlank()) {
                 // 若 Harness 已带回 runId，arm 内同步确认关联并移交；终态清理仍走后台监管。
                 RunCredentialLifecycle.arm(agentSession, userId, sessionId, task);
             }
+            armAssemblyRelease(agentSession, key, gen, userId, sessionId, task);
         } catch (RuntimeException error) {
             RunCredentialRegistry.clearCommand(task.commandId(), userId, sessionId);
             if (task.runId() != null) RunCredentialRegistry.clearRun(userId, sessionId, task.runId());
             throw error;
         }
         return task;
+    }
+
+    /**
+     * 后台收口释放必须使用提交时捕获的会话键与版本；过期回调只能清自己的绑定。
+     */
+    private void armAssemblyRelease(
+            AgentSession agentSession,
+            String key,
+            HarnessGenerationPool.Generation generation,
+            String userId,
+            String sessionId,
+            AgentSession.Task task) {
+        if (task == null || task.commandId() == null) return;
+        String commandId = task.commandId();
+        String snapshotId = generation == null ? null : generation.snapshotId();
+        assemblyLifecycleExecutor.execute(() -> {
+            try {
+                long limit = System.currentTimeMillis() + 600_000L;
+                while (System.currentTimeMillis() < limit) {
+                    AgentSession.Task latest = agentSession.task(commandId);
+                    if (latest != null && latest.settled()) break;
+                    Thread.sleep(40L);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (RuntimeException ignored) {
+                // 收口探测失败时仍尝试释放，避免永久占用一代
+            } finally {
+                synchronized (agentLock) {
+                    harnessPool.onTaskSettled(key, generation, this::sessionBusyOnGeneration);
+                    if (!sessionBusyOnGeneration(generation, key)) {
+                        assemblyBindings.clearIfMatch(key, snapshotId);
+                    }
+                }
+            }
+        });
     }
 
     /** Run 结束/失败后清理该 Run 凭证；不影响同会话其他活动 Run。 */
@@ -708,7 +1054,11 @@ public final class ChatSessions implements AutoCloseable {
 
     @Override
     public void close() {
+        if (governanceRefreshExecutor != null) {
+            governanceRefreshExecutor.shutdownNow();
+        }
+        assemblyLifecycleExecutor.shutdownNow();
         projection.close();
-        agent.close();
+        harnessPool.close();
     }
 }

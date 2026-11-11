@@ -2,15 +2,17 @@ package com.beyondzy.demo.governance;
 
 import io.agentscope.core.tool.Toolkit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 启动时把一整份 Snapshot 装进 Toolkit。
+ * 把一整份 Snapshot 装进给定 Toolkit。
  *
- * <p>本轮不支持运行中在线刷新或 live Toolkit 切换；更新工具需在当前任务结束后重启进程，
- * 由新的 {@code ChatSessions} 再拉一份 Snapshot 并重新装配。成功装配后不可再次修改同一份 Toolkit。
+ * <p>同一 {@code GovernanceToolMount} 实例只允许成功安装一次，避免改写已交给某次 run 的工具表。
+ * 运行时刷新应准备新的 Toolkit + Mount，并在会话空闲时切换到新的 Harness 装配。
  */
 public final class GovernanceToolMount {
 
@@ -18,11 +20,17 @@ public final class GovernanceToolMount {
     private final Object lock = new Object();
     private final Toolkit toolkit;
     private final GovernanceGateway gateway;
+    private final boolean requireUserCredential;
     private List<GovernanceBoundTool> current = List.of();
     private String snapshotId;
     private boolean installed;
 
     public GovernanceToolMount(Toolkit toolkit, GovernanceGateway gateway) {
+        this(toolkit, gateway, true);
+    }
+
+    GovernanceToolMount(Toolkit toolkit, GovernanceGateway gateway, boolean requireUserCredential) {
+        this.requireUserCredential = requireUserCredential;
         if (toolkit == null) throw new IllegalArgumentException("toolkit 不能为空");
         this.toolkit = toolkit;
         this.gateway = gateway;
@@ -64,6 +72,19 @@ public final class GovernanceToolMount {
         }
     }
 
+    /** URI → Toolkit 注册名，供 Skill 绑定提示使用。 */
+    public Map<String, String> registeredNameByUri() {
+        synchronized (lock) {
+            Map<String, String> map = new LinkedHashMap<>();
+            for (GovernanceBoundTool tool : current) {
+                if (tool.uri() != null && !tool.uri().isBlank()) {
+                    map.put(tool.uri(), tool.getName());
+                }
+            }
+            return Map.copyOf(map);
+        }
+    }
+
     private List<GovernanceBoundTool> compile(GovernanceSnapshot snapshot) {
         List<GovernanceToolView> usable = new ArrayList<>();
         for (GovernanceToolView tool : snapshot.tools()) {
@@ -80,7 +101,7 @@ public final class GovernanceToolMount {
         List<GovernanceToolNames.Assignment> names = GovernanceToolNames.assign(usable);
         List<GovernanceBoundTool> tools = new ArrayList<>();
         for (int i = 0; i < usable.size(); i++) {
-            tools.add(new GovernanceBoundTool(gateway, names.get(i).registeredName(), snapshot, usable.get(i)));
+            tools.add(new GovernanceBoundTool(gateway, names.get(i).registeredName(), snapshot, usable.get(i), requireUserCredential));
         }
         return tools;
     }

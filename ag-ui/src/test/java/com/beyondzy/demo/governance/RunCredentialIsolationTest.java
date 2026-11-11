@@ -761,6 +761,11 @@ class RunCredentialIsolationTest {
             return response;
         }
 
+        @Override
+        public String fetchInstructions(String snapshotId, String skillId) {
+            return "";
+        }
+
         private record Call(String uri, String snapshotId, Map<String, Object> arguments) {}
     }
 

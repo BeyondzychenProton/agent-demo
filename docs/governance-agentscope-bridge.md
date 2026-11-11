@@ -7,6 +7,7 @@
 `com.beyondzy.demo.governance.GovernanceClient` 是唯一�?HTTP 出口，实�?`GovernanceGateway`�?
 
 - `GET /api/agent/snapshot/current`
+- `GET /api/agent/snapshot/{snapshotId}/skills/{skillId}/instructions`
 - `POST /api/agent/invoke`
 
 地址�?Agent token 来自服务端配�?`governance.base-url`、`governance.agent-token`（环境变�?`GOVERNANCE_BASE_URL`、`GOVERNANCE_AGENT_TOKEN`）。两者缺一则不创建客户端，聊天仍只使用本地工具�?
@@ -103,3 +104,31 @@ AgentScope Toolkit 本身不限制工具名字符。本工程模型�?OpenAI �
 1. Snapshot `tools[]` 字段增删或改名�?
 2. Invoke 响应 `outcome` / `code` 枚举扩展�?Agent 动作约定�?
 3. 过滤�?401 是否改为完整 `InvokeResponse` 形状（当前按非统一形状处理）�?
+
+## Skill lifecycle (formatVersion 2)
+
+Governance Snapshot may include `skills[]` (e.g. DEV_SEED `dev-seed-empty`, `dev-seed-ticket`). Demo wiring:
+
+1. Startup pulls **one** `GET /api/agent/snapshot/current`.
+2. `GovernanceToolMount.install` registers `tools[]` into Toolkit (single install; no live refresh).
+3. `GovernanceSkillPrompt` resolves inline `instructions` or `GET .../skills/{skillId}/instructions` when only `instructionsRef` is present.
+4. Resolved Skill text + binding hints (URI to registered Toolkit name / alias) are appended to Harness `sysPrompt`.
+5. AgentScope dynamic filesystem skills stay **disabled** (`.disableDynamicSkills()` / `.disableDefaultWorkspaceSkills()`). Governance skills are prompt text + already-mounted BoundTools only.
+
+**Refresh:** restart the `ag-ui` process after Skill publish / grant / revoke changes. Same as tools: no mid-flight Snapshot rebind in v1.
+
+**Live smoke (Step 7 prep):**
+
+```powershell
+# Governance: enable local DEV_SEED + agent-reader token (application-local.properties)
+# Demo: GOVERNANCE_BASE_URL=http://127.0.0.1:8091 GOVERNANCE_AGENT_TOKEN=dev-agent-reader-token
+
+curl.exe -s -H "X-Agent-Token: dev-agent-reader-token" http://127.0.0.1:8091/api/agent/snapshot/current
+# Expect skills[].skillId includes dev-seed-empty and/or dev-seed-ticket; tools may include get_ticket.
+
+# If instructions is null and instructionsRef is set:
+curl.exe -s -H "X-Agent-Token: dev-agent-reader-token" "http://127.0.0.1:8091/api/agent/snapshot/<snapshotId>/skills/<skillId>/instructions"
+```
+
+Do **not** import meeting-booking / SMS / `office.room_*` skills for this demo path.
+

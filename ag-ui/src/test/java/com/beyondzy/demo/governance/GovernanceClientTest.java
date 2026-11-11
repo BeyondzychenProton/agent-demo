@@ -73,6 +73,19 @@ class GovernanceClientTest {
             assertEquals(20, snapshot.tools().get(0).inputSchema().get("properties") instanceof Map<?, ?> properties
                     ? ((Map<?, ?>) ((Map<?, ?>) properties).get("name")).get("maxLength")
                     : null);
+            assertEquals(2, snapshot.skills().size());
+            assertEquals("dev-seed-empty", snapshot.skills().get(0).skillId());
+            assertEquals("使用本 Skill 时无需绑定工具。", snapshot.skills().get(0).instructions());
+            assertNull(snapshot.skills().get(0).instructionsRef());
+            assertTrue(snapshot.skills().get(0).toolBindings().isEmpty());
+            assertEquals("dev-seed-ticket", snapshot.skills().get(1).skillId());
+            assertEquals("查询工单时调用 get_ticket。", snapshot.skills().get(1).instructions());
+            assertEquals(1, snapshot.skills().get(1).toolBindings().size());
+            assertEquals("get_ticket", snapshot.skills().get(1).toolBindings().get(0).alias());
+            assertEquals(
+                    "driver://mcp/tenant-a/ticketing/get_ticket",
+                    snapshot.skills().get(1).toolBindings().get(0).toolUri());
+            assertEquals("ticket_get_ticket", snapshot.skills().get(1).toolBindings().get(0).modelName());
 
             Map<String, Object> nested = new LinkedHashMap<>();
             nested.put("city", "杭州");
@@ -232,11 +245,101 @@ class GovernanceClientTest {
         assertTrue(GovernanceClient.ifConfigured("http://127.0.0.1:8091", "token-a") != null);
     }
 
+    @Test
+    void conditionalSnapshotFetchHonors304AndIfNoneMatch() throws Exception {
+        List<String> ifNoneMatch = new CopyOnWriteArrayList<>();
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/agent/snapshot/current", exchange -> {
+            hits.incrementAndGet();
+            String inm = exchange.getRequestHeaders().getFirst("If-None-Match");
+            ifNoneMatch.add(inm);
+            if (inm != null && inm.contains("ab")) {
+                exchange.getResponseHeaders().add("ETag", "\"ab\"");
+                exchange.sendResponseHeaders(304, -1);
+                exchange.close();
+                return;
+            }
+            byte[] body = snapshotJson().getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.getResponseHeaders().add("ETag", "\"ab\"");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            GovernanceClient client = new GovernanceClient(
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    "dev-agent-invoke-demo-token",
+                    Duration.ofSeconds(2));
+            GovernanceSnapshotFetch first = client.fetchCurrent(null);
+            assertFalse(first.notModified());
+            assertEquals("snap_live", first.snapshot().snapshotId());
+            assertEquals("ab", first.etag());
+
+            GovernanceSnapshotFetch second = client.fetchCurrent("ab");
+            assertTrue(second.notModified());
+            assertNull(second.snapshot());
+            assertEquals("ab", second.etag());
+            assertEquals(2, hits.get());
+            assertNull(ifNoneMatch.get(0));
+            assertEquals("\"ab\"", ifNoneMatch.get(1));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void fetchInstructionsReturnsPlainTextBody() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        List<Recorded> seen = new CopyOnWriteArrayList<>();
+        server.createContext("/api/agent/snapshot/snap_live/skills/dev-seed-ticket/instructions", exchange -> {
+            seen.add(new Recorded(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders().getFirst("X-Agent-Token"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential"),
+                    exchange.getRequestHeaders().getFirst("X-Trusted-User-Credential-Type"),
+                    ""));
+            byte[] body = "查询工单时调用 get_ticket。".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
+            exchange.getResponseHeaders().add("X-Content-Digest", "abc");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            GovernanceClient client = new GovernanceClient(
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    "dev-agent-reader-token",
+                    Duration.ofSeconds(2));
+            String text = client.fetchInstructions("snap_live", "dev-seed-ticket");
+            assertEquals("查询工单时调用 get_ticket。", text);
+            assertEquals(1, seen.size());
+            assertEquals("GET", seen.get(0).method());
+            assertEquals("dev-agent-reader-token", seen.get(0).token());
+            assertNull(seen.get(0).trustedUser());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static String snapshotJson() {
         return """
                 {"tenantId":"tenant-a","appId":"default","subject":"agent-invoke-demo",
                  "snapshotId":"snap_live","etag":"ab","createdAt":"2026-11-08T12:00:00Z",
-                 "policyVersion":"cd","skills":[],
+                 "policyVersion":"cd","formatVersion":2,
+                 "skills":[
+                   {"skillId":"dev-seed-empty","name":"DEV_SEED 空清单说明","description":"纯说明材料",
+                    "version":"1","resourceFingerprint":"aa","instructions":"使用本 Skill 时无需绑定工具。",
+                    "contentDigest":"d1","byteSize":40,"toolBindings":[]},
+                   {"skillId":"dev-seed-ticket","name":"DEV_SEED 工单助手","description":"绑定 get_ticket",
+                    "version":"1","resourceFingerprint":"bb","instructions":"查询工单时调用 get_ticket。",
+                    "contentDigest":"d2","byteSize":30,
+                    "toolBindings":[{"skillToolBindingId":"stb_1","modelName":"ticket_get_ticket",
+                      "alias":"get_ticket","toolUri":"driver://mcp/tenant-a/ticketing/get_ticket"}]}],
                  "tools":[{"uri":"driver://mcp/tenant-a/cms-identity-invoke/identity.resolve",
                    "name":"identity.resolve","description":"只读身份查询",
                    "inputSchema":{"type":"object","properties":{"name":{"type":"string","maxLength":20}},
