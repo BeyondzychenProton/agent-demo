@@ -1,46 +1,3 @@
-const PREVIEW_CHARS = 120;
-const PREVIEW_LINES = 2;
-
-/** First two lines, capped at 120 characters. Longer reasoning needs a separate full-body control. */
-export function reasoningPreview(text: string): { preview: string; needsDetail: boolean } {
-  const body = text.replace(/\s+$/u, "");
-  const lines = body.split(/\r?\n/);
-  const head = lines.slice(0, PREVIEW_LINES).join("\n");
-  const chars = Array.from(head);
-  const needsDetail = lines.length > PREVIEW_LINES || chars.length > PREVIEW_CHARS;
-  const preview = chars.length > PREVIEW_CHARS ? chars.slice(0, PREVIEW_CHARS).join("") : head;
-  return { preview, needsDetail };
-}
-
-export type ReasoningBodyPolicy =
-  | { kind: "live" }
-  | { kind: "preview"; preview: string }
-  | { kind: "full" };
-
-/**
- * An open stream grows the live body in place.
- * The 2-line/120-char budget is only a settled summary.
- * Opening 全文 replaces that capped head.
- */
-export function reasoningBodyPolicy(input: {
-  text: string;
-  streaming: boolean;
-  rowOpen: boolean;
-  detailOpen: boolean;
-}): ReasoningBodyPolicy {
-  if (input.streaming && input.rowOpen) {
-    return { kind: "live" };
-  }
-  const { preview, needsDetail } = reasoningPreview(input.text);
-  if (!needsDetail) {
-    return { kind: "live" };
-  }
-  if (input.detailOpen) {
-    return { kind: "full" };
-  }
-  return { kind: "preview", preview };
-}
-
 const LOCAL_PHASE_LABEL: Record<string, string> = {
   sending: "正在发送",
   accepted: "已接收，正在同步",
@@ -62,8 +19,9 @@ export function messageChrome(input: {
     };
   }
   if (input.role === "reasoning") {
+    // DeepSeek title is always「思考」; running is conveyed by shimmer + preview, not the title.
     return {
-      eyebrow: input.partial ? "深度思考中…" : "已思考",
+      eyebrow: "思考",
       showCaret: !!input.partial,
     };
   }
