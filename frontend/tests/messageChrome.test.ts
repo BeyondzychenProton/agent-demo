@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { messageChrome, reasoningPreview } from "../src/components/chat/messageChrome.ts";
+import { messageChrome, reasoningBodyPolicy, reasoningPreview } from "../src/components/chat/messageChrome.ts";
 
 test("partial assistant keeps quiet eyebrow and caret", () => {
   const chrome = messageChrome({ role: "assistant", partial: true });
@@ -46,4 +46,31 @@ test("long reasoning keeps a two-line preview", () => {
   const trailing = reasoningPreview("一\n二\n");
   assert.equal(trailing.needsDetail, false);
   assert.equal(trailing.preview, "一\n二");
+});
+
+test("open streaming reasoning grows in place past the preview budget", () => {
+  const long = "思".repeat(200);
+  assert.deepEqual(reasoningBodyPolicy({ text: long, streaming: true, rowOpen: true, detailOpen: false }), { kind: "live" });
+  assert.deepEqual(reasoningBodyPolicy({ text: "一\n二\n三", streaming: true, rowOpen: true, detailOpen: false }), { kind: "live" });
+  assert.deepEqual(reasoningBodyPolicy({ text: long, streaming: true, rowOpen: true, detailOpen: true }), { kind: "live" });
+});
+
+test("settled long reasoning previews until 全文 replaces the capped head", () => {
+  const long = "思".repeat(200);
+  assert.deepEqual(
+    reasoningBodyPolicy({ text: long, streaming: false, rowOpen: true, detailOpen: false }),
+    { kind: "preview", preview: "思".repeat(120) },
+  );
+  assert.deepEqual(
+    reasoningBodyPolicy({ text: "一\n二\n三", streaming: false, rowOpen: true, detailOpen: false }),
+    { kind: "preview", preview: "一\n二" },
+  );
+  assert.deepEqual(reasoningBodyPolicy({ text: long, streaming: false, rowOpen: true, detailOpen: true }), { kind: "full" });
+});
+
+test("short reasoning stays a live body", () => {
+  assert.deepEqual(
+    reasoningBodyPolicy({ text: "短思考", streaming: false, rowOpen: true, detailOpen: false }),
+    { kind: "live" },
+  );
 });

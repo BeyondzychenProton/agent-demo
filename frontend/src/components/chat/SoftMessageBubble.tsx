@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Brain, ChevronRight } from "lucide-react";
 
-import { reasoningPreview } from "@/components/chat/messageChrome";
+import { reasoningBodyPolicy } from "@/components/chat/messageChrome";
 import { cn } from "@/lib/utils";
 
 export function SoftMessageBubble({
@@ -14,7 +14,7 @@ export function SoftMessageBubble({
   role: "user" | "assistant" | "reasoning";
   eyebrow: string;
   showCaret: boolean;
-  /** Reasoning source text. Used only to decide whether the L2 preview needs an L3 body. */
+  /** Reasoning source text. Settled rows use it for the preview budget; an open stream ignores the cap. */
   text?: string;
   children: ReactNode;
 }) {
@@ -63,13 +63,13 @@ function ReasoningTrace({
   text: string;
   children: ReactNode;
 }) {
-  const { preview, needsDetail } = reasoningPreview(text);
   const [open, setOpen] = useState(showCaret);
   const [detailOpen, setDetailOpen] = useState(false);
   useEffect(() => {
     setOpen(showCaret);
   }, [showCaret]);
 
+  const policy = reasoningBodyPolicy({ text, streaming: showCaret, rowOpen: open, detailOpen });
   const caret = showCaret ? <StreamingCaret /> : null;
 
   return (
@@ -91,9 +91,16 @@ function ReasoningTrace({
         </summary>
         {open ? (
           <div className="space-y-2 pb-2 pl-5 pt-1">
-            {needsDetail ? (
+            {policy.kind === "live" ? (
+              <div className="break-words text-[13px] leading-6 text-muted-foreground">
+                {children}
+                {caret}
+              </div>
+            ) : (
               <>
-                <p className="whitespace-pre-wrap break-words text-[13px] leading-6 text-muted-foreground">{preview}…{detailOpen ? null : caret}</p>
+                {policy.kind === "preview" ? (
+                  <p className="whitespace-pre-wrap break-words text-[13px] leading-6 text-muted-foreground">{policy.preview}…</p>
+                ) : null}
                 <details
                   className="group/l3"
                   open={detailOpen}
@@ -106,7 +113,7 @@ function ReasoningTrace({
                     <ChevronRight className="size-3 shrink-0 transition group-open/l3:rotate-90" />
                     全文
                   </summary>
-                  {detailOpen ? (
+                  {policy.kind === "full" ? (
                     <div className="mt-1.5 max-h-56 overflow-auto rounded-xl bg-muted/60 p-2.5 text-[13px] leading-6 text-muted-foreground">
                       <div className="break-words">
                         {children}
@@ -116,11 +123,6 @@ function ReasoningTrace({
                   ) : null}
                 </details>
               </>
-            ) : (
-              <div className="break-words text-[13px] leading-6 text-muted-foreground">
-                {children}
-                {caret}
-              </div>
             )}
           </div>
         ) : null}

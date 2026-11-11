@@ -1,7 +1,7 @@
 export function formatDuration(
   durationMs: number | undefined | null,
 ): string | null {
-  if (durationMs == null) {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs < 0) {
     return null;
   }
   if (durationMs < 1000) {

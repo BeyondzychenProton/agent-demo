@@ -12,6 +12,35 @@ export function reasoningPreview(text: string): { preview: string; needsDetail: 
   return { preview, needsDetail };
 }
 
+export type ReasoningBodyPolicy =
+  | { kind: "live" }
+  | { kind: "preview"; preview: string }
+  | { kind: "full" };
+
+/**
+ * An open stream grows the live body in place.
+ * The 2-line/120-char budget is only a settled summary.
+ * Opening 全文 replaces that capped head.
+ */
+export function reasoningBodyPolicy(input: {
+  text: string;
+  streaming: boolean;
+  rowOpen: boolean;
+  detailOpen: boolean;
+}): ReasoningBodyPolicy {
+  if (input.streaming && input.rowOpen) {
+    return { kind: "live" };
+  }
+  const { preview, needsDetail } = reasoningPreview(input.text);
+  if (!needsDetail) {
+    return { kind: "live" };
+  }
+  if (input.detailOpen) {
+    return { kind: "full" };
+  }
+  return { kind: "preview", preview };
+}
+
 const LOCAL_PHASE_LABEL: Record<string, string> = {
   sending: "正在发送",
   accepted: "已接收，正在同步",
