@@ -1,3 +1,17 @@
+const PREVIEW_CHARS = 120;
+const PREVIEW_LINES = 2;
+
+/** First two lines, capped at 120 characters. Longer reasoning needs a separate full-body control. */
+export function reasoningPreview(text: string): { preview: string; needsDetail: boolean } {
+  const body = text.replace(/\s+$/u, "");
+  const lines = body.split(/\r?\n/);
+  const head = lines.slice(0, PREVIEW_LINES).join("\n");
+  const chars = Array.from(head);
+  const needsDetail = lines.length > PREVIEW_LINES || chars.length > PREVIEW_CHARS;
+  const preview = chars.length > PREVIEW_CHARS ? chars.slice(0, PREVIEW_CHARS).join("") : head;
+  return { preview, needsDetail };
+}
+
 const LOCAL_PHASE_LABEL: Record<string, string> = {
   sending: "正在发送",
   accepted: "已接收，正在同步",
@@ -20,7 +34,7 @@ export function messageChrome(input: {
   }
   if (input.role === "reasoning") {
     return {
-      eyebrow: input.partial ? "正在思考…" : "已思考",
+      eyebrow: input.partial ? "深度思考中…" : "已思考",
       showCaret: !!input.partial,
     };
   }

@@ -113,7 +113,12 @@ export const TranscriptItem = memo(function TranscriptItem({ entry, threadId, on
   return (
     <div>
       <div className={item.role === "user" ? "flex justify-end" : undefined}>
-        <SoftMessageBubble role={item.role} eyebrow={chrome.eyebrow} showCaret={chrome.showCaret}>
+        <SoftMessageBubble
+          role={item.role}
+          eyebrow={chrome.eyebrow}
+          showCaret={chrome.showCaret}
+          text={item.role === "reasoning" ? item.text : undefined}
+        >
           {plain ? <p className="whitespace-pre-wrap break-words">{item.text}</p>
             : <CopilotChatAssistantMessage.MarkdownRenderer content={item.text} mode={item.partial ? "streaming" : "static"} isAnimating={!!item.partial} className="break-words text-foreground" />}
         </SoftMessageBubble>
