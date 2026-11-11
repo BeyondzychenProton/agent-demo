@@ -21,3 +21,13 @@ test("interrupted is muted and collapsed", () => {
     { visual: "muted", defaultOpen: false },
   );
 });
+
+test("labels match trace copy", () => {
+  assert.equal(mapToolStatus("running").label, "执行中");
+  assert.equal(mapToolStatus("suspended").label, "待审批");
+  assert.equal(mapToolStatus("completed").label, "完成");
+  assert.equal(mapToolStatus("failed").label, "失败");
+  assert.equal(mapToolStatus("generating_arguments").label, "接收参数");
+  assert.equal(mapToolStatus("requested").label, "已请求");
+  assert.equal(mapToolStatus("interrupted").label, "已中断");
+});
