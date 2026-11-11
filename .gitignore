@@ -13,6 +13,11 @@
 # Docs & notes (not part of this submission)
 docs/*
 !docs/governance-agentscope-bridge.md
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/specs/
+docs/superpowers/specs/*
+!docs/superpowers/specs/*.md
 .superpowers/
 ag-ui/docx/
 
