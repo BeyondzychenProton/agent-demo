@@ -81,6 +81,11 @@ public final class AguiService {
         governance.put("snapshotId", sessions.governanceSnapshotId());
         governance.put("registeredTools", sessions.governanceRegisteredTools());
 
+        Map<String, Object> mcp = new LinkedHashMap<>();
+        mcp.put("mounted", sessions.mcpToolsMounted());
+        mcp.put("registeredTools", sessions.mcpRegisteredTools());
+        mcp.put("skillsDir", sessions.mcpSkillsDir());
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("version", "2.0.0");
         result.put("agents", Map.of(AGENT_ID, agent));
@@ -95,6 +100,7 @@ public final class AguiService {
         result.put("telemetryDisabled", true);
         // 复验探针：确认运行态是否真正挂上了 Governance BoundTool（不是仅有本地工具）
         result.put("governance", governance);
+        result.put("mcp", mcp);
         return result;
     }
 

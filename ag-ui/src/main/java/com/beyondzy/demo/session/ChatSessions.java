@@ -7,6 +7,10 @@ import com.beyondzy.demo.governance.RunCredentialLifecycle;
 import com.beyondzy.demo.governance.RunCredentialRegistry;
 import com.beyondzy.demo.governance.GovernanceSnapshot;
 import com.beyondzy.demo.governance.GovernanceToolMount;
+import com.beyondzy.demo.mcp.McpAccess;
+import com.beyondzy.demo.mcp.McpBoundTool;
+import com.beyondzy.demo.mcp.McpSkillPaths;
+import com.beyondzy.demo.mcp.McpToolMount;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
@@ -22,6 +26,7 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.session.AgentSession;
 import io.agentscope.core.session.SessionLogStore;
+import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import com.beyondzy.demo.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
 import com.beyondzy.demo.readmodel.ChatHistory;
@@ -53,6 +58,8 @@ public final class ChatSessions implements AutoCloseable {
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
     private final GovernanceToolMount governanceMount;
+    private final List<String> mcpToolNames;
+    private final String mcpSkillsDir;
     private final SessionLogStore store;
     private final String defaultUserId;
     private final AgentSessionService agentSessions;
@@ -131,6 +138,14 @@ public final class ChatSessions implements AutoCloseable {
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService, GovernanceGateway governance) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
+                agentSessionService, governance, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService, GovernanceGateway governance, McpAccess mcp) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
@@ -172,19 +187,45 @@ public final class ChatSessions implements AutoCloseable {
                     mount.snapshotId(),
                     mount.registeredNames());
         }
-        agent =
+        List<McpBoundTool> mcpTools = List.of();
+        String resolvedSkills = null;
+        if (mcp != null) {
+            try {
+                mcpTools = McpToolMount.install(
+                        toolkit,
+                        mcp.client().listTools(mcp.discoveryPhone()),
+                        mcp.client(),
+                        mcp.phones());
+            } catch (RuntimeException error) {
+                logger.warn("本地 MCP 工具发现失败，会话继续可用：{}", error.toString());
+            }
+            try {
+                McpSkillPaths.SkillRoot skills = McpSkillPaths.resolve(mcp.skillsDir(), workspace.toAbsolutePath());
+                resolvedSkills = skills.directory().toString();
+                logger.info("本地会议技能已准备 source={} dir={}", skills.source(), skills.directory());
+            } catch (Exception error) {
+                logger.warn("本地会议技能未加载，会话继续可用：{}", error.toString());
+            }
+        }
+        boolean mcpToolsMounted = !mcpTools.isEmpty();
+        if (mcp != null && !mcpToolsMounted) {
+            logger.warn("本地 MCP 已配置，但没有挂上工具");
+        } else if (mcpToolsMounted) {
+            logger.info("本地 MCP 工具已挂载 {}", mcpTools.stream().map(McpBoundTool::getName).toList());
+        }
+        var agentBuilder =
                 HarnessAgent.builder()
                         .name("Session Chat")
                         .agentId(AGENT)
                         .model(model)
-                        // 提示词只在真正挂上治理工具时启用，避免“有文案无工具”
-                        .sysPrompt(systemPrompt(governanceToolsMounted))
+                        // 提示词只在真正挂上对应工具时启用，避免“有文案无工具”
+                        .sysPrompt(systemPrompt(governanceToolsMounted, mcpToolsMounted))
                         .workspace(workspace.toAbsolutePath())
                         .sessionLogStore(store)
                         .toolkit(toolkit)
                         // 查询允许直接执行，写入必须 ASK；真正授权来自确认结果，不能以聊天中的“批准”代替。
-                        .permissionContext(approvalPermissions())
-                        // 关闭本 demo 用不到的能力，保持最小
+                        .permissionContext(approvalPermissions(mcpTools))
+                        // 动态技能和默认工作区技能保持关闭，只装这次准备好的本地会议技能。
                         .disableShellTool()
                         .disableFilesystemTools()
                         .disableWebTools()
@@ -197,10 +238,21 @@ public final class ChatSessions implements AutoCloseable {
                         .disableToolsConfig()
                         .disableWorkspaceContext()
                         .disableAtPathExpansion()
-                        .maxIters(8)
-                        .build();
-        // 治理工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
+                        .maxIters(mcpToolsMounted ? 16 : 8);
+        if (resolvedSkills != null) {
+            try {
+                agentBuilder.skillRepository(new FileSystemSkillRepository(
+                        Path.of(resolvedSkills), false, "local-meeting"));
+            } catch (RuntimeException error) {
+                logger.warn("注册本地会议技能失败，会话继续可用：{}", error.toString());
+                resolvedSkills = null;
+            }
+        }
+        agent = agentBuilder.build();
+        // 工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
         governanceMount = mount;
+        mcpToolNames = mcpTools.stream().map(McpBoundTool::getName).toList();
+        mcpSkillsDir = resolvedSkills;
         catalog = new ThreadCatalog(this::list, this::log, displayIndex);
         displayViews = new DisplayViewStore(displayIndex);
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
@@ -213,15 +265,24 @@ public final class ChatSessions implements AutoCloseable {
      * 审批触发端：规则由平台设置，模型只提出调用，不能自行绕过写入授权。
      * ruleContent 为空表示匹配该工具的全部调用；查询不产生写入效果，因此显式允许。
      */
-    private static PermissionContextState approvalPermissions() {
-        return PermissionContextState.builder()
+    private static PermissionContextState approvalPermissions(List<McpBoundTool> mcpTools) {
+        var rules = PermissionContextState.builder()
                 .addAskRule("write_note", new PermissionRule(
                         "write_note", null, PermissionBehavior.ASK, "平台审批策略"))
                 .addAllowRule("lookup_order", new PermissionRule(
                         "lookup_order", null, PermissionBehavior.ALLOW, "平台查询策略"))
                 .addAllowRule("search_docs", new PermissionRule(
-                        "search_docs", null, PermissionBehavior.ALLOW, "平台查询策略"))
-                .build();
+                        "search_docs", null, PermissionBehavior.ALLOW, "平台查询策略"));
+        for (McpBoundTool tool : mcpTools) {
+            if (tool.writes()) {
+                rules.addAskRule(tool.getName(), new PermissionRule(
+                        tool.getName(), null, PermissionBehavior.ASK, "会议写入需用户确认"));
+            } else {
+                rules.addAllowRule(tool.getName(), new PermissionRule(
+                        tool.getName(), null, PermissionBehavior.ALLOW, "会议查询"));
+            }
+        }
+        return rules.build();
     }
 
     public String modelName() {
@@ -233,15 +294,29 @@ public final class ChatSessions implements AutoCloseable {
      * 工具是否真的出现仍由 Snapshot 决定，闲聊不因此强制调用工具。
      */
     public static String systemPrompt(boolean governanceTools) {
+        return systemPrompt(governanceTools, false);
+    }
+
+    /**
+     * 未配置治理和本地 MCP 时保持原提示词。对应工具真正挂上之后才补充确认和失败说明。
+     */
+    public static String systemPrompt(boolean governanceTools, boolean mcpTools) {
         String base = "你是一个简洁的聊天助手，始终用与用户相同的语言回复。"
                 + "需要查订单、检索文档或记录笔记时，优先调用已提供的工具，"
                 + "不要编造工具返回的数据。";
-        if (!governanceTools) return base;
+        if (governanceTools) {
+            base += "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
+                    + "出现多名候选人时先向用户确认；没有找到时如实说明。"
+                    + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
+                    + "普通闲聊不要调用工具。";
+        }
+        if (!mcpTools) return base;
         return base
-                + "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
-                + "出现多名候选人时先向用户确认；没有找到时如实说明。"
-                + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
-                + "普通闲聊不要调用工具。";
+                + "已挂载满天星会议工具。工具名中的点写成下划线，例如 identity.resolve 调用 identity_resolve。"
+                + "预约、查询空闲、订会议室或取消会议时按 meeting-booking 技能执行，不要编造人员、时间或会议室。"
+                + "identity_resolve 即使只有一人也要请用户确认。room_reserve 和 meeting_cancel 必须先得到用户明确确认。"
+                + "写操作的 requestId 在同一次提交和重试中保持不变。调用失败不要编造成功，也不要换号自动重试。"
+                + "当前用户身份只来自登录账号。普通闲聊不要调用工具。";
     }
 
     /** 进程启动时装配的治理 Snapshot id；未装配则为 null。更新工具需重启进程。 */
@@ -257,6 +332,20 @@ public final class ChatSessions implements AutoCloseable {
     /** 是否已挂载至少一个治理 BoundTool（供诊断与 /info 探测）。 */
     public boolean governanceBoundToolsMounted() {
         return governanceSnapshotId() != null && !governanceRegisteredTools().isEmpty();
+    }
+
+    /** 启动时挂上的本地 MCP 工具注册名。 */
+    public List<String> mcpRegisteredTools() {
+        return mcpToolNames;
+    }
+
+    public boolean mcpToolsMounted() {
+        return !mcpToolNames.isEmpty();
+    }
+
+    /** 实际装入的技能目录；未装入时为 null。 */
+    public String mcpSkillsDir() {
+        return mcpSkillsDir;
     }
 
     /** 校验会话 id 合法：字母数字、下划线、连字符，1~80 位。 */

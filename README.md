@@ -53,12 +53,16 @@
 | `governance.base-url` | 治理底座基址，环境变量 `GOVERNANCE_BASE_URL`，默认空（不接入） |
 | `governance.agent-token` | Agent 令牌，环境变量 `GOVERNANCE_AGENT_TOKEN`；tenant/app/subject 由治理映射 |
 | `chat.identity-connector.shared-key` | 身份连接器机器共享密钥，环境变量 `IDENTITY_CONNECTOR_SHARED_KEY`；**勿把真实 Secret 写入仓库** |
+| `mcp.endpoint` | 本地直连 MCP 地址，默认 `https://cms-test-k8s.shsets.com/stage-api/mcp` |
+| `mcp.app-key` / `mcp.secret` | 测试环境 App Key 与 HMAC Secret，环境变量 `MCP_APP_KEY`、`MCP_SECRET` |
+| `mcp.discovery-phone` | 仅启动时 `tools/list` 使用的手机号，默认种子用户；业务调用仍用当前登录用户 |
+| `mcp.skills-dir` | 会议技能目录。目录存在且含 `SKILL.md` 时用它，否则用内置 `meeting-booking` |
 
 所有项都可用同名环境变量覆盖（Spring 占位符）；`chat.api-key` 留空时启动即报中文错误，不静默降级。
 
 ### 2.1 治理底座接入（Agent 经治理用工具）
 
-设计说明见 [`docs/governance-agentscope-bridge.md`](docs/governance-agentscope-bridge.md)。本工程只做 HTTP 客户端 + Snapshot 工具装配，**不**依赖治理工程的 Java 模块、**不**访问其数据库、**不**保存 MCP Secret、**不**直连业务 MCP。
+设计说明见 [`docs/governance-agentscope-bridge.md`](docs/governance-agentscope-bridge.md)。治理路径只做 HTTP 客户端 + Snapshot 工具装配，**不**依赖治理工程的 Java 模块、**不**访问其数据库、**不**在这条路径保存 MCP Secret、**不**由治理失败后退到直连 MCP。
 
 配置占位（`.env.example`）：
 
@@ -68,7 +72,7 @@ GOVERNANCE_AGENT_TOKEN=replace-with-agent-token
 IDENTITY_CONNECTOR_SHARED_KEY=replace-with-shared-machine-key
 ```
 
-联调时令牌使用治理侧映射，例如 `dev-agent-invoke-demo-token`（对应 subject `agent-invoke-demo`）。MCP HMAC Secret **只**配在治理进程；本工程不写手机号给治理，可信 phone 由治理回调下方内省 API 取得。
+联调时令牌使用治理侧映射，例如 `dev-agent-invoke-demo-token`（对应 subject `agent-invoke-demo`）。治理路径不保存 MCP HMAC Secret，本工程也不写手机号给治理，可信 phone 由治理回调下方内省 API 取得。本地直连见 §2.2。
 
 > **联调状态：pending_reverify。** 历史双账号只读联调曾跑通（见治理仓 `docs/superpowers/evidence/2026-11-09-trusted-user-real-integration-report.md`）；当前因 Demo 侧 Run 凭证隔离/生命周期清理与内省只读问题修复中，治理侧 `REAL_USER_INGRESS` 不应再视为已完成。身份域示例 `mantianxing.user` 仅为治理可配置值，**不要**写死进本工程业务逻辑。
 
@@ -124,6 +128,17 @@ mvn "-Dtest=GovernanceClientTest,GovernanceToolAssemblyTest,SessionIntrospection
 覆盖：Snapshot 转换与名称映射、执行器固定 snapshotId/URI、arguments 原样透传且不能覆盖外层身份/绑定、结果与错误分类、新实例重启装配而旧实例绑定不变、装配后拒绝运行中替换、撤权拒绝、脚本模型走 Harness 选工具且闲聊不强制调用；会话内省契约、机器密钥、两用户并发内省手机号隔离、invoke 用户头、并发 Run 凭证隔离、缺凭证失败闭合、登出/过期后内省失败、凭证不落盘（SessionLog/Workspace）。
 
 **真实对话证据（脱敏）与已知限制：** 见文末「治理接入验收」一节；细节与待对齐项见设计文档。
+
+### 2.2 本地直连满天星 MCP
+
+治理底座还没接上会议工具时，进程按 `mcp.endpoint` 直接调用测试环境 MCP，并加载会议技能，供当前登录用户预约、查询和取消会议。地址默认是 `https://cms-test-k8s.shsets.com/stage-api/mcp`；只换主机、路径不变。需要改完整地址时设置 `MCP_ENDPOINT`。
+
+- 启动时用 `mcp.discovery-phone` 做一次 `initialize` 和 `tools/list`，把工具注册进会话。点号会变成下划线，例如 `identity.resolve` 注册为 `identity_resolve`。
+- 每次 `tools/call` 重新用**当前登录用户**的手机号签名。模型参数里的手机号只当作参会人等业务参数，不能换成发起人。
+- `room_reserve` 和 `meeting_cancel` 走人工批准；查询工具直接执行。
+- 技能优先读 `mcp.skills-dir`。本机目录 `D:/code project/agentscope/claude-skills/productivity/meeting-booking` 存在时用那里的技能；没有这个目录时，使用仓库内置的 `meeting-booking`。
+- 启动后看 `GET /agui/info` 的 `mcp.registeredTools` 和 `mcp.skillsDir`。发现失败只记警告，本地演示工具和已有会话仍可使用。
+- 写操作不自动重试。`IN_PROGRESS` 或结果不确定时停止，不要更换 `requestId` 再提交。
 
 ## 3. 后端构建与启动（PowerShell）
 

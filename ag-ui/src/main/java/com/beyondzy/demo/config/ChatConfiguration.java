@@ -1,11 +1,15 @@
 package com.beyondzy.demo.config;
 
+import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.governance.GovernanceClient;
+import com.beyondzy.demo.mcp.McpAccess;
+import com.beyondzy.demo.mcp.McpClient;
 import com.beyondzy.demo.session.AgentSessionService;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
 import com.beyondzy.demo.display.DisplayIndexService;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.user.UserService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
@@ -38,8 +42,14 @@ public class ChatConfiguration {
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
             @Value("${chat.api-key}") String key,
+            UserService users,
             @Value("${governance.base-url:}") String governanceBaseUrl,
-            @Value("${governance.agent-token:}") String governanceAgentToken)
+            @Value("${governance.agent-token:}") String governanceAgentToken,
+            @Value("${mcp.endpoint:}") String mcpEndpoint,
+            @Value("${mcp.app-key:}") String mcpAppKey,
+            @Value("${mcp.secret:}") String mcpSecret,
+            @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
+            @Value("${mcp.skills-dir:}") String mcpSkillsDir)
             throws IOException {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
@@ -62,15 +72,36 @@ public class ChatConfiguration {
             } else if (!hasText(governanceBaseUrl) && !hasText(governanceAgentToken)) {
                 logger.warn(
                         "治理接入未启用：GOVERNANCE_BASE_URL / GOVERNANCE_AGENT_TOKEN 均为空；"
-                                + "Demo Agent 将只有本地工具，不会挂载 Governance BoundTool");
+                                + "不会挂载 Governance BoundTool");
             }
         } else {
             logger.info("治理客户端已配置 baseUrl={}，将在 ChatSessions 启动时拉取 Snapshot 并挂载 BoundTool",
                     governanceBaseUrl.trim());
         }
+        McpClient mcpClient = McpClient.ifConfigured(mcpEndpoint, mcpAppKey, mcpSecret);
+        McpAccess mcp = null;
+        if (mcpClient == null) {
+            if (hasText(mcpEndpoint) || hasText(mcpAppKey) || hasText(mcpSecret)) {
+                logger.warn("本地 MCP 未启用：需要同时配置 mcp.endpoint、mcp.app-key 与 mcp.secret");
+            }
+        } else {
+            logger.info("本地 MCP 已配置 endpoint={}", mcpEndpoint.trim());
+            mcp = new McpAccess(
+                    mcpClient,
+                    userId -> phoneOf(users, userId),
+                    mcpDiscoveryPhone,
+                    hasText(mcpSkillsDir) ? Path.of(mcpSkillsDir.trim()) : null);
+        }
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, governance);
+                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, governance, mcp);
+    }
+
+    private static String phoneOf(UserService users, String userId) {
+        if (userId == null || userId.isBlank() || !userId.chars().allMatch(Character::isDigit)) return null;
+        UserBean user = users.findById(Long.parseLong(userId));
+        if (user == null || user.getPhone() == null || user.getPhone().isBlank()) return null;
+        return user.getPhone().strip();
     }
 
     private static boolean hasText(String value) {
