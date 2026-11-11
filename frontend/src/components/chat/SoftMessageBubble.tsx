@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Brain } from "lucide-react";
 
 import { DisclosureRow } from "@/components/chat/DisclosureRow";
+import { TextShimmer } from "@/components/chat/TextShimmer";
 import { reasoningSummary } from "@/components/chat/reasoningText";
 import { cn } from "@/lib/utils";
 
@@ -15,13 +16,12 @@ export function SoftMessageBubble({
   role: "user" | "assistant" | "reasoning";
   eyebrow: string;
   showCaret: boolean;
-  /** Full reasoning source text for collapsed one-line preview. */
   text?: string;
   children: ReactNode;
 }) {
   if (role === "reasoning") {
     return (
-      <ReasoningRow running={showCaret} text={text ?? ""} title={eyebrow}>
+      <ReasoningRow running={!!showCaret} text={text ?? ""} title={eyebrow}>
         {children}
       </ReasoningRow>
     );
@@ -51,7 +51,7 @@ export function SoftMessageBubble({
   );
 }
 
-/** DeepSeek-harness ReasoningRow: collapsed = 思考 · first-line; expand = full body. */
+/** Port of deepseek-harness ReasoningRow. */
 function ReasoningRow({
   title,
   running,
@@ -64,34 +64,57 @@ function ReasoningRow({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const summary = reasoningSummary(text, running);
+  const summary = useMemo(() => reasoningSummary(text, running), [text, running]);
+  // DeepSeek: show one-line preview beside title when collapsed (and while streaming has a completed line).
+  const showPreview = !open && summary !== "";
 
   return (
-    <article className="max-w-[92%]" data-variant="think" data-state={running ? "running" : "ok"}>
+    <article
+      className={cn("max-w-[92%]", !open && "h-6 overflow-hidden")}
+      data-variant="think"
+      data-state={running ? "running" : "ok"}
+      data-expanded={open || undefined}
+      data-preview={showPreview || undefined}
+    >
+      {running ? <span className="sr-only">正在运行</span> : null}
       <DisclosureRow
         icon={<Brain className="size-3.5" />}
         title={title}
+        running={running}
         open={open}
         expandable
-        running={running}
+        expandOnRowClick
         onToggle={() => setOpen(value => !value)}
         collapsedContent={
-          summary ? (
+          showPreview || (!open && summary === "" && running) ? (
             <>
-              <span className="mx-2 size-0.5 shrink-0 rounded-full bg-muted-foreground/70" aria-hidden />
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate text-[13px] leading-6",
-                  running && "[mask-image:linear-gradient(to_right,black_calc(100%-48px),transparent)]",
-                )}
-              >
-                {summary}
-              </span>
+              {summary ? (
+                <>
+                  <span
+                    className="mx-2 size-0.5 shrink-0 rounded-full bg-muted-foreground/70"
+                    data-shimmer-decoration
+                    aria-hidden
+                  />
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 overflow-hidden text-[13px] leading-6 whitespace-nowrap",
+                      running && "[mask-image:linear-gradient(to_right,black_calc(100%-48px),transparent)]",
+                    )}
+                  >
+                    <TextShimmer active={running}>
+                      <span className="block overflow-hidden text-ellipsis">{summary}</span>
+                    </TextShimmer>
+                  </span>
+                </>
+              ) : null}
             </>
           ) : null
         }
       >
-        <div className="min-w-0 py-1 pl-[22px] text-[13px] leading-5 text-muted-foreground">
+        <div
+          className="min-w-0 py-1 pl-[22px] text-[13px] leading-5 text-muted-foreground"
+          // sticky header is handled by DisclosureRow header staying above body in flow
+        >
           <div className="break-words">
             {children}
             {running ? <StreamingCaret /> : null}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { apiFetch } from "@/auth/api";
 import { pickOldestPending } from "@/components/chat/pickOldestPending";
@@ -21,6 +21,10 @@ async function loadOldestActionable(threadId: string, signal?: AbortSignal): Pro
   }
 }
 
+/**
+ * Approval surface styled after deepseek-harness ApprovalCard
+ * (warn strip + body + reject/allow action row), keeping existing APIs.
+ */
 export function ApprovalBar({ threadId }: { threadId: string }) {
   const view = useThreadView(threadId);
   const pendingCount = view.status?.pendingCount ?? 0;
@@ -31,6 +35,8 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
   const [retry, setRetry] = useState<{ decision: "approve" | "reject" | "cancel"; reason: string } | null>(null);
   const [error, setError] = useState("");
   const shownId = useRef<string | null>(null);
+  const composing = useRef(false);
+  const compositionEnded = useRef(false);
 
   const reload = async (signal?: AbortSignal) => {
     if (!pendingCount) {
@@ -95,7 +101,6 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
       }
       await getThreadStore(threadId).refresh();
       await reload();
-      // busy stays true until entry.itemId changes (same-decision lock), matching prior ToolCardView.
     } catch {
       setNotice("正在确认提交结果，请先查询；如需重试，只能重发同一决定");
       setRetry({ decision, reason: submittedReason });
@@ -103,64 +108,95 @@ export function ApprovalBar({ threadId }: { threadId: string }) {
     }
   };
 
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!card?.hitl?.canRespond || busy) return;
+    const element = event.target as Element;
+    if (event.defaultPrevented || !event.currentTarget.contains(document.activeElement)) return;
+    if (element.closest("input, textarea, select, [contenteditable=\"true\"], [contenteditable=\"\"]")) return;
+    if (event.key !== "Enter" && event.key !== "Escape") return;
+    if (event.key === "Enter" && element.closest("button, a[href], [role=\"button\"]")) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || composing.current || compositionEnded.current || event.nativeEvent.isComposing) return;
+    void act(event.key === "Enter" ? "approve" : "reject");
+  };
+
   return (
-    <div role="region" aria-label="审批" className="mb-3 rounded-2xl border border-border/80 bg-secondary/40 p-3">
-      {error ? <p className="text-sm text-amber-700">{error}</p> : null}
-      {!error && !card ? <p className="text-sm text-muted-foreground">正在加载待确认操作…</p> : null}
-      {card?.hitl ? <>
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{card.hitl.askPrompt}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{card.displayTitle}</p>
+    <div
+      role="region"
+      aria-label="审批"
+      aria-busy={busy}
+      className="mb-3"
+      onKeyDown={onKeyDown}
+      onKeyUpCapture={() => { compositionEnded.current = false; }}
+      onCompositionStartCapture={() => { composing.current = true; }}
+      onCompositionEndCapture={() => { composing.current = false; compositionEnded.current = true; }}
+    >
+      <div className="dsh-approval-card">
+        <div className="dsh-approval-strip">
+          <span className="inline-block size-2 rounded-full bg-amber-500" aria-hidden />
+          {busy ? "处理中" : "等待确认"}
+          {pendingCount > 1 ? <span className="text-amber-800/70">· 还有 {pendingCount - 1} 条</span> : null}
+        </div>
+        <div className="flex flex-col gap-1.5 px-4 pb-0 pt-3">
+          {error ? <p className="text-sm text-amber-700">{error}</p> : null}
+          {!error && !card ? <p className="text-sm text-muted-foreground">正在加载待确认操作…</p> : null}
+          {card?.hitl ? (
+            <>
+              <div className="text-[15px] font-medium leading-6 text-foreground">{card.hitl.askPrompt}</div>
+              <p className="text-[13px] leading-5 text-muted-foreground">{card.displayTitle}</p>
+              <label className="mt-1 block text-xs text-muted-foreground">说明（可选）
+                <input
+                  aria-label="审批说明"
+                  value={reason}
+                  maxLength={2000}
+                  disabled={busy}
+                  onChange={event => setReason(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+        {card?.hitl ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 px-4 pb-4">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act("reject")}
+              className="rounded-xl border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground disabled:opacity-50"
+            >
+              拒绝
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act("approve")}
+              className="rounded-xl bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            >
+              批准
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act("cancel")}
+              className="rounded-xl px-3 py-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              取消任务
+            </button>
+            <button type="button" onClick={() => void reload()} className="ml-auto text-xs text-muted-foreground underline">
+              查询当前结果
+            </button>
           </div>
-          {pendingCount > 1 ? <p className="shrink-0 text-xs text-muted-foreground">还有 {pendingCount - 1} 条待确认</p> : null}
-        </div>
-        <label className="mt-3 block text-xs text-muted-foreground">说明（可选）
-          <input
-            aria-label="审批说明"
-            value={reason}
-            maxLength={2000}
-            disabled={busy}
-            onChange={event => setReason(event.target.value)}
-            className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-          />
-        </label>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("approve")}
-            className="rounded-xl bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-          >
-            批准
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("reject")}
-            className="rounded-xl border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground disabled:opacity-50"
-          >
-            拒绝
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void act("cancel")}
-            className="rounded-xl px-3 py-1.5 text-sm text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
-          >
-            取消任务
-          </button>
-          <button type="button" onClick={() => void reload()} className="ml-auto text-xs text-muted-foreground underline">
-            查询当前结果
-          </button>
-        </div>
-        {notice ? <p className="mt-2 text-xs text-muted-foreground" role="status">{notice}</p> : null}
-        {retry && card.hitl.canRespond ? (
-          <button type="button" onClick={() => void act(retry.decision, true)} className="mt-2 text-xs underline">
+        ) : null}
+        {notice ? <p className="px-4 pb-3 text-xs text-muted-foreground" role="status">{notice}</p> : null}
+        {retry && card?.hitl?.canRespond ? (
+          <button type="button" onClick={() => void act(retry.decision, true)} className="px-4 pb-3 text-xs underline">
             重试同一提交
           </button>
         ) : null}
-      </> : null}
+      </div>
     </div>
   );
 }
