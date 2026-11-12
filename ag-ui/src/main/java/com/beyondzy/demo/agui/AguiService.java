@@ -133,6 +133,12 @@ public final class AguiService {
         return info;
     }
 
+    public Map<String, Object> renameThread(String threadId, Map<String, Object> request) {
+        Object value = request.get("name");
+        if (!(value instanceof String name)) throw new IllegalArgumentException("会话名称不能为空");
+        return threadInfo(threadId, sessions.renameThread(threadId, name));
+    }
+
     /** 把会话摘要转换为 CopilotKit 线程描述。 */
     private Map<String, Object> threadInfo(String threadId) {
         return threadInfo(threadId, sessions.thread(threadId));

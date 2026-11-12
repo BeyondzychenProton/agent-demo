@@ -93,7 +93,7 @@ public class ChatConfiguration {
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,
                 mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, mcp,
-                skillRepository);
+                skillRepository, users);
     }
 
     private static String phoneOf(UserService users, String userId) {

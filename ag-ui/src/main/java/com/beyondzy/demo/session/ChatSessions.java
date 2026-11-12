@@ -27,6 +27,8 @@ import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import com.beyondzy.demo.tools.ClockTools;
+import com.beyondzy.demo.tools.CurrentUserTool;
+import com.beyondzy.demo.user.UserService;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -136,6 +138,15 @@ public final class ChatSessions implements AutoCloseable {
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService, McpAccess mcp,
             AgentSkillRepository skillRepository) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
+                agentSessionService, mcp, skillRepository, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService, McpAccess mcp,
+            AgentSkillRepository skillRepository, UserService users) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
@@ -145,6 +156,7 @@ public final class ChatSessions implements AutoCloseable {
         // 时钟用于将会议中的相对日期转换为绝对时间。
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new ClockTools());
+        if (users != null) toolkit.registerAgentTool(new CurrentUserTool(users));
         List<McpBoundTool> mcpTools = List.of();
         if (mcp != null) {
             try {
@@ -210,6 +222,8 @@ public final class ChatSessions implements AutoCloseable {
      */
     private static PermissionContextState approvalPermissions(List<McpBoundTool> mcpTools) {
         var rules = PermissionContextState.builder()
+                .addAllowRule("get_current_user", new PermissionRule(
+                        "get_current_user", null, PermissionBehavior.ALLOW, "读取当前登录用户"))
                 .addAllowRule("get_current_time", new PermissionRule(
                         "get_current_time", null, PermissionBehavior.ALLOW, "读取当前时间"));
         for (McpBoundTool tool : mcpTools) {
@@ -294,11 +308,31 @@ public final class ChatSessions implements AutoCloseable {
     }
 
     public ThreadCatalog.Page threads(int limit, String cursor) {
-        return catalog.page(limit, cursor);
+        var page = catalog.page(limit, cursor);
+        return new ThreadCatalog.Page(page.threads().stream().map(this::withCustomTitle).toList(), page.nextCursor());
     }
 
     public ThreadCatalog.Summary thread(String id) {
-        return catalog.get(id);
+        return withCustomTitle(catalog.get(id));
+    }
+
+    public ThreadCatalog.Summary renameThread(String sessionId, String title) {
+        String checkedId = id(sessionId);
+        if (title == null || title.isBlank() || title.strip().length() > 100)
+            throw new IllegalArgumentException("会话名称必须为 1 到 100 个字符");
+        assertAccessible(checkedId);
+        var summary = catalog.get(checkedId);
+        if (summary == null || agentSessions == null)
+            throw new com.beyondzy.demo.auth.support.SessionNotFoundException("会话不存在");
+        agentSessions.rename(Long.parseLong(activeUserId()), AGENT, checkedId, title.strip());
+        return withCustomTitle(summary);
+    }
+
+    private ThreadCatalog.Summary withCustomTitle(ThreadCatalog.Summary summary) {
+        if (summary == null || agentSessions == null) return summary;
+        String title = agentSessions.title(Long.parseLong(activeUserId()), AGENT, summary.id());
+        if (title == null || title.isBlank()) return summary;
+        return new ThreadCatalog.Summary(summary.id(), title, summary.createdAt(), summary.updatedAt(), summary.seq(), true);
     }
 
     /** 现算快照：从已提交日志前缀重建消息/卡片视图（大纲 5.4.1，读日志现算，不另存状态）。 */

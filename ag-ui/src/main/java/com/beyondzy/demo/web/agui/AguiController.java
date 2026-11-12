@@ -65,11 +65,14 @@ public final class AguiController {
         return AuthRequests.call(() -> agui.createThread(body == null ? Map.of() : body));
     }
 
-    /** PATCH /agui/run/threads/{id}：重命名（不落表，回显）。 */
+    /** PATCH /agui/run/threads/{id}：保存当前用户的会话名称。 */
     @PatchMapping("/threads/{id}")
     public Mono<Map<String, Object>> renameThread(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
-        return AuthRequests.call(() -> agui.noopThread(id, body == null ? Map.of() : body));
+        return AuthRequests.call(() -> {
+            try { return agui.renameThread(id, body == null ? Map.of() : body); }
+            catch (IllegalArgumentException error) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error); }
+        });
     }
 
     /** POST /agui/run/threads/{id}/archive：归档（不落表，回显成功）。 */

@@ -1,6 +1,7 @@
 import { CopilotChatInput, useCopilotChatConfiguration, useThreads } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Check, PanelLeftOpen, Pencil, X } from "lucide-react";
 import type { AuthUser } from "@/auth/api";
 import { apiFetch } from "@/auth/api";
 import { ApprovalBar } from "@/components/ApprovalBar";
@@ -22,9 +23,14 @@ export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: ()
 }
 
 function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleError, setTitleError] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
   const config = useCopilotChatConfiguration();
   const threadId = config?.threadId;
-  const { threads } = useThreads({ agentId: THREAD_AGENT_ID, limit: 20 });
+  const { threads, refetchThreads } = useThreads({ agentId: THREAD_AGENT_ID, limit: 20 });
   const activeThread = threadId ? threads.find(thread => thread.id === threadId) : undefined;
   const headerTitle = activeThread
     ? friendlyThreadTitle(activeThread)
@@ -32,16 +38,53 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       ? "会话"
       : "正在初始化会话…";
 
+  useEffect(() => { setEditingTitle(false); setTitleError(""); }, [threadId]);
+  const saveTitle = async () => {
+    const title = titleDraft.trim();
+    if (!title || title.length > 100) { setTitleError("请输入 1 到 100 个字符的会话名称"); return; }
+    if (!threadId || savingTitle) return;
+    setSavingTitle(true); setTitleError("");
+    try {
+      const response = await apiFetch(`/agui/run/threads/${encodeURIComponent(threadId)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: title }),
+      });
+      if (!response.ok) throw new Error(response.status === 404 ? "会话不存在，请先发送消息" : "保存失败，请重试");
+      setEditingTitle(false);
+      refetchThreads();
+      window.dispatchEvent(new Event("thread-catalog-changed"));
+    } catch (error) { setTitleError(error instanceof Error ? error.message : "保存失败，请重试"); }
+    finally { setSavingTitle(false); }
+  };
+
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background">
-      <div className="flex h-full w-full min-w-0">
-        <ThreadListPanel user={user} onLogout={onLogout} />
+      <div className="flex h-full w-full min-w-0 max-[760px]:flex-col">
+        <ThreadListPanel user={user} onLogout={onLogout} hidden={sidebarHidden} onCollapse={() => setSidebarHidden(true)} />
         {threadId ? (
           <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
-            <header className="flex h-12 shrink-0 items-center justify-center border-b border-border/70 px-4 sm:px-6">
-              <h1 className="max-w-full truncate text-sm font-medium text-muted-foreground" title={headerTitle}>
-                {headerTitle}
-              </h1>
+            <header className="relative flex h-12 shrink-0 items-center justify-center border-b border-border/70 px-4 sm:px-6">
+              {sidebarHidden && <button type="button" onClick={() => setSidebarHidden(false)}
+                aria-label="显示会话列表" title="显示会话列表"
+                className="absolute left-3 flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                <PanelLeftOpen className="size-4" />
+              </button>}
+              {editingTitle ? (
+                <form className="flex min-w-0 max-w-[75%] items-center gap-1" onSubmit={event => { event.preventDefault(); void saveTitle(); }}>
+                  <input autoFocus aria-label="会话名称" maxLength={100} value={titleDraft}
+                    onChange={event => setTitleDraft(event.target.value)} onKeyDown={event => {
+                      if (event.key === "Escape") { setEditingTitle(false); setTitleError(""); }
+                    }} className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/40" />
+                  <button type="submit" disabled={savingTitle} aria-label="保存会话名称" title="保存" className="rounded-md p-1.5 hover:bg-accent disabled:opacity-50"><Check className="size-4" /></button>
+                  <button type="button" disabled={savingTitle} aria-label="取消修改名称" title="取消" onClick={() => { setEditingTitle(false); setTitleError(""); }} className="rounded-md p-1.5 hover:bg-accent"><X className="size-4" /></button>
+                </form>
+              ) : (
+                <button type="button" aria-label="修改会话名称" title="修改会话名称"
+                  onClick={() => { setTitleDraft(headerTitle); setTitleError(""); setEditingTitle(true); }}
+                  className="group flex max-w-[75%] items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+                  <span className="truncate">{headerTitle}</span><Pencil className="size-3.5 shrink-0 opacity-60 group-hover:opacity-100" />
+                </button>
+              )}
+              {titleError && <span role="alert" className="absolute top-full z-10 rounded-md border border-border bg-card px-2 py-1 text-xs text-destructive shadow-sm">{titleError}</span>}
             </header>
             <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pt-3 pb-2 sm:px-6 lg:px-8">
               <WindowedTranscript key={threadId} threadId={threadId} />
@@ -52,9 +95,14 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
             </div>
           </section>
         ) : (
-          <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          <div className="relative flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            {sidebarHidden && <button type="button" onClick={() => setSidebarHidden(false)}
+              aria-label="显示会话列表" title="显示会话列表"
+              className="absolute top-2 left-3 flex size-8 items-center justify-center rounded-full hover:bg-accent">
+              <PanelLeftOpen className="size-4" />
+            </button>}
             正在初始化会话…
-          </p>
+          </div>
         )}
       </div>
     </main>

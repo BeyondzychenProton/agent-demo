@@ -12,6 +12,7 @@ import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.mcp.McpBoundTool;
 import com.beyondzy.demo.mcp.McpCallResult;
 import com.beyondzy.demo.mcp.McpToolDefinition;
+import com.beyondzy.demo.user.UserService;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
@@ -60,6 +61,7 @@ class ChatSessionsSkillWiringTest {
         try (JdbcAgentSkillRepository repo = new JdbcAgentSkillRepository(dataSource, SkillJdbc.dialect(dataSource));
                 ChatSessions sessions = open(repo)) {
             HarnessAgent agent = agent(sessions);
+            assertInstanceOf(ToolBase.class, agent.getToolkit().getTool("get_current_user"));
             ToolBase clock = assertInstanceOf(ToolBase.class, agent.getToolkit().getTool("get_current_time"));
             assertTrue(clock.isReadOnly());
             assertTrue(clock.isConcurrencySafe());
@@ -76,7 +78,7 @@ class ChatSessionsSkillWiringTest {
 
     private ChatSessions open(JdbcAgentSkillRepository repo) {
         return new ChatSessions(workspace, new IdleModel(), new EmptyStore(), "local-user",
-                null, mock(ReadModelPersistenceService.class), null, null, repo);
+                null, mock(ReadModelPersistenceService.class), null, null, repo, mock(UserService.class));
     }
 
     private static HarnessAgent agent(ChatSessions sessions) throws Exception {

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -62,6 +62,10 @@ export function ProcessGroup({
   const [turnOpen, setTurnOpen] = useState(true);
   const [groupOpen, setGroupOpen] = useState(!closed);
   const bodyId = useId();
+
+  useEffect(() => {
+    if (closed) setGroupOpen(false);
+  }, [closed]);
 
   if (!closed) {
     return (

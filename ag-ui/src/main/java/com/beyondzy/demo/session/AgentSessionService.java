@@ -13,4 +13,8 @@ public interface AgentSessionService {
 
     /** 查询会话所属用户；不存在返回 null。 */
     Long findUserId(String agentId, String sessionId);
+
+    String title(long userId, String agentId, String sessionId);
+
+    void rename(long userId, String agentId, String sessionId, String title);
 }

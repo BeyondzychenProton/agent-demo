@@ -3,7 +3,7 @@ import {
   useThreads,
   type Thread,
 } from "@copilotkit/react-core/v2";
-import { LogOut, MessageSquarePlus, RefreshCcw, Trash2 } from "lucide-react";
+import { LogOut, MessageSquarePlus, PanelLeftClose, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import type { AuthUser } from "@/auth/api";
@@ -22,7 +22,9 @@ function accountLabel(user: AuthUser) {
   return user.phone;
 }
 
-export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?: () => void } = {}) {
+export function ThreadListPanel({ user, onLogout, hidden = false, onCollapse }: {
+  user?: AuthUser; onLogout?: () => void; hidden?: boolean; onCollapse?: () => void;
+} = {}) {
   const chatConfig = useCopilotChatConfiguration();
   const restoredThreadRef = useRef(false);
   const {
@@ -76,7 +78,7 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
 
   return (
     <aside
-      className="grid h-full w-[260px] min-w-0 max-w-[260px] shrink-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden border-r border-border/80 bg-secondary/40 max-[760px]:h-[180px] max-[760px]:w-full max-[760px]:max-w-none max-[760px]:border-r-0 max-[760px]:border-b"
+      className={cn("grid h-full w-[260px] min-w-0 max-w-[260px] shrink-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden border-r border-border/80 bg-secondary/40 max-[760px]:h-[180px] max-[760px]:w-full max-[760px]:max-w-none max-[760px]:border-r-0 max-[760px]:border-b", hidden && "hidden")}
       aria-label="会话列表"
     >
       <div className="flex min-w-0 items-center gap-2 px-4 pt-4 pb-2">
@@ -95,16 +97,22 @@ export function ThreadListPanel({ user, onLogout }: { user?: AuthUser; onLogout?
           <MessageSquarePlus className="size-4" />
           新会话
         </Button>
+        <div className="flex items-center gap-1">
         <Button
           type="button"
           size="sm"
           variant="ghost"
-          className="h-8 w-full max-w-full justify-start !rounded-full text-muted-foreground"
+          className="h-8 min-w-0 flex-1 justify-start !rounded-full text-muted-foreground"
           onClick={refetchThreads}
         >
           <RefreshCcw className="size-3.5" />
           刷新
         </Button>
+        {onCollapse && <Button type="button" size="sm" variant="ghost" onClick={onCollapse}
+          aria-label="隐藏会话列表" title="隐藏会话列表" className="h-8 w-8 shrink-0 !rounded-full p-0 text-muted-foreground">
+          <PanelLeftClose className="size-4" />
+        </Button>}
+        </div>
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 overflow-hidden px-2">
