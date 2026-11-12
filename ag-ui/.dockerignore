@@ -3,3 +3,4 @@
 !src/
 !src/**
 src/test/
+!docker-settings.xml
