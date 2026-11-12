@@ -34,9 +34,7 @@ public class SecurityConfiguration {
         authFilter.setServerAuthenticationConverter(authenticationConverter);
         authFilter.setSecurityContextRepository(NoOpServerSecurityContextRepository.getInstance());
         authFilter.setRequiresAuthenticationMatcher(new NegatedServerWebExchangeMatcher(
-                ServerWebExchangeMatchers.pathMatchers(
-                        HttpMethod.POST, "/api/auth/login",
-                        "/api/internal/identity/session/introspect")));
+                ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/auth/login")));
         authFilter.setAuthenticationSuccessHandler(renewingSuccessHandler(authenticationManager));
         authFilter.setAuthenticationFailureHandler((exchange, ex) ->
                 writeUnauthorized(exchange.getExchange()));
@@ -49,8 +47,6 @@ public class SecurityConfiguration {
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                        // 治理 Identity Connector 机器回调：由控制器校验共享密钥 + 会话 Token。
-                        .pathMatchers(HttpMethod.POST, "/api/internal/identity/session/introspect").permitAll()
                         .pathMatchers("/api/**", "/agui/**").authenticated()
                         .anyExchange().permitAll())
                 .exceptionHandling(spec -> spec

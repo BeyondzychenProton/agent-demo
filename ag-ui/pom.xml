@@ -66,6 +66,11 @@
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-extensions-agui</artifactId>
         </dependency>
+        <!-- JDBC 技能库。版本由 agentscope.version BOM 管理，不使用已废弃的 mysql skill repository。 -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-jdbc</artifactId>
+        </dependency>
         <!-- WebFlux：REST + SSE 通道 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -91,6 +96,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

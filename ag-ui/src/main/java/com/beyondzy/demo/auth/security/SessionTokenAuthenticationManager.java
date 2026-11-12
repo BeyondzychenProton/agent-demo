@@ -50,11 +50,6 @@ public class SessionTokenAuthenticationManager implements ReactiveAuthentication
         return toOutcome(rawToken, sessions.validateAndMaybeRenew(rawToken));
     }
 
-    /** 机器内省等只读路径：不触发滑动续期写库。 */
-    public AuthOutcome validateReadOnly(String rawToken) {
-        return toOutcome(rawToken, sessions.validateReadOnly(rawToken));
-    }
-
     private AuthOutcome toOutcome(String rawToken, AuthSessionService.ValidatedSession validated) {
         if (validated == null) return null;
         UserBean user = users.findById(validated.row().getUserId());

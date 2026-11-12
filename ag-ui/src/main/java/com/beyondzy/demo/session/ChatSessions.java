@@ -1,15 +1,8 @@
 package com.beyondzy.demo.session;
 
-import com.beyondzy.demo.auth.support.SubmitCredentialCapture;
 import com.beyondzy.demo.auth.support.UserContext;
-import com.beyondzy.demo.governance.GovernanceGateway;
-import com.beyondzy.demo.governance.RunCredentialLifecycle;
-import com.beyondzy.demo.governance.RunCredentialRegistry;
-import com.beyondzy.demo.governance.GovernanceSnapshot;
-import com.beyondzy.demo.governance.GovernanceToolMount;
 import com.beyondzy.demo.mcp.McpAccess;
 import com.beyondzy.demo.mcp.McpBoundTool;
-import com.beyondzy.demo.mcp.McpSkillPaths;
 import com.beyondzy.demo.mcp.McpToolMount;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
@@ -26,7 +19,6 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.session.AgentSession;
 import io.agentscope.core.session.SessionLogStore;
-import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import com.beyondzy.demo.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
 import com.beyondzy.demo.readmodel.ChatHistory;
@@ -34,9 +26,8 @@ import com.beyondzy.demo.readmodel.ProjectionService;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.readmodel.ThreadView;
 import com.beyondzy.demo.readmodel.ThreadViewAssembler;
-import com.beyondzy.demo.tools.DocSearchTools;
-import com.beyondzy.demo.tools.NoteTools;
-import com.beyondzy.demo.tools.OrderTools;
+import com.beyondzy.demo.tools.ClockTools;
+import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
@@ -57,9 +48,7 @@ public final class ChatSessions implements AutoCloseable {
     private static final String AGENT = "session-chat";
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
-    private final GovernanceToolMount governanceMount;
     private final List<String> mcpToolNames;
-    private final String mcpSkillsDir;
     private final SessionLogStore store;
     private final String defaultUserId;
     private final AgentSessionService agentSessions;
@@ -117,13 +106,13 @@ public final class ChatSessions implements AutoCloseable {
     private final Map<String, RevisionCursor> revisions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ChatSessions(Path workspace, Model model) {
-        this(workspace, model, null, "local-user", null, null, null, null);
+        this(workspace, model, null, "local-user", null, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence) {
-        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence, null, null);
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence, null);
     }
 
     public ChatSessions(Path workspace, Model model,
@@ -137,58 +126,26 @@ public final class ChatSessions implements AutoCloseable {
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
-            AgentSessionService agentSessionService, GovernanceGateway governance) {
+            AgentSessionService agentSessionService, McpAccess mcp) {
         this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
-                agentSessionService, governance, null);
+                agentSessionService, mcp, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
-            AgentSessionService agentSessionService, GovernanceGateway governance, McpAccess mcp) {
+            AgentSessionService agentSessionService, McpAccess mcp,
+            AgentSkillRepository skillRepository) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
         modelName = model.getModelName();
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
         store = sessionLogStore;
-        GovernanceSnapshot initialGovernance = null;
-        if (governance != null) {
-            try {
-                initialGovernance = governance.currentSnapshot();
-            } catch (RuntimeException error) {
-                logger.warn("首次拉取治理 Snapshot 失败，本地会话继续可用：{}", error.toString());
-            }
-        }
-        // 演示工具：注册到框架 Toolkit，执行仍由 HarnessAgent 驱动（大纲 M7 / 6.1.9）
+        // 时钟用于将会议中的相对日期转换为绝对时间。
         Toolkit toolkit = new Toolkit();
-        toolkit.registerTool(new OrderTools());
-        toolkit.registerTool(new DocSearchTools());
-        toolkit.registerTool(new NoteTools(workspace.toAbsolutePath()));
-        GovernanceToolMount mount = governance == null ? null : new GovernanceToolMount(toolkit, governance);
-        if (mount != null && initialGovernance != null) {
-            try {
-                mount.install(initialGovernance);
-            } catch (RuntimeException error) {
-                logger.warn("安装治理工具失败，本地会话继续可用：{}", error.toString());
-            }
-        }
-        boolean governanceToolsMounted = mount != null
-                && mount.snapshotId() != null
-                && !mount.registeredNames().isEmpty();
-        if (governance != null && !governanceToolsMounted) {
-            logger.warn(
-                    "治理客户端已配置，但 BoundTool 未挂载（snapshotId={} tools={}）；Demo 仅有本地工具",
-                    mount == null ? null : mount.snapshotId(),
-                    mount == null ? List.of() : mount.registeredNames());
-        } else if (governanceToolsMounted) {
-            logger.info(
-                    "治理 BoundTool 已挂载 snapshotId={} tools={}",
-                    mount.snapshotId(),
-                    mount.registeredNames());
-        }
+        toolkit.registerTool(new ClockTools());
         List<McpBoundTool> mcpTools = List.of();
-        String resolvedSkills = null;
         if (mcp != null) {
             try {
                 mcpTools = McpToolMount.install(
@@ -198,13 +155,6 @@ public final class ChatSessions implements AutoCloseable {
                         mcp.phones());
             } catch (RuntimeException error) {
                 logger.warn("本地 MCP 工具发现失败，会话继续可用：{}", error.toString());
-            }
-            try {
-                McpSkillPaths.SkillRoot skills = McpSkillPaths.resolve(mcp.skillsDir(), workspace.toAbsolutePath());
-                resolvedSkills = skills.directory().toString();
-                logger.info("本地会议技能已准备 source={} dir={}", skills.source(), skills.directory());
-            } catch (Exception error) {
-                logger.warn("本地会议技能未加载，会话继续可用：{}", error.toString());
             }
         }
         boolean mcpToolsMounted = !mcpTools.isEmpty();
@@ -219,19 +169,19 @@ public final class ChatSessions implements AutoCloseable {
                         .agentId(AGENT)
                         .model(model)
                         // 提示词只在真正挂上对应工具时启用，避免“有文案无工具”
-                        .sysPrompt(systemPrompt(governanceToolsMounted, mcpToolsMounted))
+                        .sysPrompt(systemPrompt(mcpToolsMounted))
                         .workspace(workspace.toAbsolutePath())
                         .sessionLogStore(store)
                         .toolkit(toolkit)
                         // 查询允许直接执行，写入必须 ASK；真正授权来自确认结果，不能以聊天中的“批准”代替。
                         .permissionContext(approvalPermissions(mcpTools))
-                        // 动态技能和默认工作区技能保持关闭，只装这次准备好的本地会议技能。
+                        // 关掉 shell，技能里的 scripts 只存储不执行。动态技能保持开启，上传后的下一次调用会重新读取。
+                        // 默认工作区技能仍然关闭，避免扫进工作目录里未登记的技能。
                         .disableShellTool()
                         .disableFilesystemTools()
                         .disableWebTools()
                         .disableSubagents()
                         .disableDynamicSubagents()
-                        .disableDynamicSkills()
                         .disableDefaultWorkspaceSkills()
                         .disableMemoryTools()
                         .disableMemoryHooks()
@@ -239,20 +189,13 @@ public final class ChatSessions implements AutoCloseable {
                         .disableWorkspaceContext()
                         .disableAtPathExpansion()
                         .maxIters(mcpToolsMounted ? 16 : 8);
-        if (resolvedSkills != null) {
-            try {
-                agentBuilder.skillRepository(new FileSystemSkillRepository(
-                        Path.of(resolvedSkills), false, "local-meeting"));
-            } catch (RuntimeException error) {
-                logger.warn("注册本地会议技能失败，会话继续可用：{}", error.toString());
-                resolvedSkills = null;
-            }
+        // 管理接口与这里共用同一个 JDBC 仓库，不打开模型侧的 skill_manage。
+        if (skillRepository != null) {
+            agentBuilder.skillRepository(skillRepository);
         }
         agent = agentBuilder.build();
         // 工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
-        governanceMount = mount;
         mcpToolNames = mcpTools.stream().map(McpBoundTool::getName).toList();
-        mcpSkillsDir = resolvedSkills;
         catalog = new ThreadCatalog(this::list, this::log, displayIndex);
         displayViews = new DisplayViewStore(displayIndex);
         // 启动时恢复已落盘会话；目录按需从两份日志派生。
@@ -267,12 +210,8 @@ public final class ChatSessions implements AutoCloseable {
      */
     private static PermissionContextState approvalPermissions(List<McpBoundTool> mcpTools) {
         var rules = PermissionContextState.builder()
-                .addAskRule("write_note", new PermissionRule(
-                        "write_note", null, PermissionBehavior.ASK, "平台审批策略"))
-                .addAllowRule("lookup_order", new PermissionRule(
-                        "lookup_order", null, PermissionBehavior.ALLOW, "平台查询策略"))
-                .addAllowRule("search_docs", new PermissionRule(
-                        "search_docs", null, PermissionBehavior.ALLOW, "平台查询策略"));
+                .addAllowRule("get_current_time", new PermissionRule(
+                        "get_current_time", null, PermissionBehavior.ALLOW, "读取当前时间"));
         for (McpBoundTool tool : mcpTools) {
             if (tool.writes()) {
                 rules.addAskRule(tool.getName(), new PermissionRule(
@@ -290,48 +229,17 @@ public final class ChatSessions implements AutoCloseable {
     }
 
     /**
-     * 未配置治理时保持原提示词。配置了治理地址后补充人员查询的确认和失败说明；
-     * 工具是否真的出现仍由 Snapshot 决定，闲聊不因此强制调用工具。
+     * 未挂上本地 MCP 时保持原提示词。工具真正挂上之后才补充确认和失败说明。
      */
-    public static String systemPrompt(boolean governanceTools) {
-        return systemPrompt(governanceTools, false);
-    }
-
-    /**
-     * 未配置治理和本地 MCP 时保持原提示词。对应工具真正挂上之后才补充确认和失败说明。
-     */
-    public static String systemPrompt(boolean governanceTools, boolean mcpTools) {
-        String base = "你是一个简洁的聊天助手，始终用与用户相同的语言回复。"
-                + "需要查订单、检索文档或记录笔记时，优先调用已提供的工具，"
-                + "不要编造工具返回的数据。";
-        if (governanceTools) {
-            base += "如果提供了治理查询工具，查询人员或身份时优先调用它，不要编造人员信息。"
-                    + "出现多名候选人时先向用户确认；没有找到时如实说明。"
-                    + "工具被拒绝、绑定失效、结果不确定或调用失败时，说明这次调用没有成功，不要编造结果，也不要自动反复重试。"
-                    + "普通闲聊不要调用工具。";
-        }
+    public static String systemPrompt(boolean mcpTools) {
+        String base = "你是一个简洁的聊天助手，始终用与用户相同的语言回复。不要编造工具返回的数据。";
         if (!mcpTools) return base;
         return base
-                + "已挂载满天星会议工具。工具名中的点写成下划线，例如 identity.resolve 调用 identity_resolve。"
+                + "已挂载满天星会议工具。根据当前可用工具的描述和参数选择适合的能力，不要猜测工具名称或参数。"
                 + "预约、查询空闲、订会议室或取消会议时按 meeting-booking 技能执行，不要编造人员、时间或会议室。"
-                + "identity_resolve 即使只有一人也要请用户确认。room_reserve 和 meeting_cancel 必须先得到用户明确确认。"
+                + "人员查询即使只有一人也要请用户确认。预约和取消必须经页面工具审批，聊天中的同意不能替代审批。"
                 + "写操作的 requestId 在同一次提交和重试中保持不变。调用失败不要编造成功，也不要换号自动重试。"
                 + "当前用户身份只来自登录账号。普通闲聊不要调用工具。";
-    }
-
-    /** 进程启动时装配的治理 Snapshot id；未装配则为 null。更新工具需重启进程。 */
-    public String governanceSnapshotId() {
-        return governanceMount == null ? null : governanceMount.snapshotId();
-    }
-
-    /** 启动时装入 Toolkit 的治理 BoundTool 注册名；未挂载时为空列表。 */
-    public List<String> governanceRegisteredTools() {
-        return governanceMount == null ? List.of() : governanceMount.registeredNames();
-    }
-
-    /** 是否已挂载至少一个治理 BoundTool（供诊断与 /info 探测）。 */
-    public boolean governanceBoundToolsMounted() {
-        return governanceSnapshotId() != null && !governanceRegisteredTools().isEmpty();
     }
 
     /** 启动时挂上的本地 MCP 工具注册名。 */
@@ -341,11 +249,6 @@ public final class ChatSessions implements AutoCloseable {
 
     public boolean mcpToolsMounted() {
         return !mcpToolNames.isEmpty();
-    }
-
-    /** 实际装入的技能目录；未装入时为 null。 */
-    public String mcpSkillsDir() {
-        return mcpSkillsDir;
     }
 
     /** 校验会话 id 合法：字母数字、下划线、连字符，1~80 位。 */
@@ -490,22 +393,9 @@ public final class ChatSessions implements AutoCloseable {
     public HitlService.AnswerReceipt answer(String id, String requestId, String decision, String reason) {
         return hitl.answer(session(id(id)), requestId, decision, reason);
     }
-    /** 等待阶段取消；仅作用于指定 turn，不删除会话历史。取消后清理对应 Run 凭证。 */
+    /** 等待阶段取消；仅作用于指定 turn，不删除会话历史。 */
     public Map<String, String> cancelPending(String id, String turnId) {
-        String sessionId = id(id);
-        String runId = null;
-        try {
-            AgentSession.Task pending = pendingTask(sessionId);
-            if (pending != null && turnId != null && turnId.equals(pending.turnId())) {
-                runId = pending.runId();
-                RunCredentialRegistry.clearCommand(pending.commandId(), activeUserId(), sessionId);
-            }
-        } catch (RuntimeException ignored) {
-            // 清理失败不阻断取消主路径
-        }
-        Map<String, String> result = hitl.cancel(session(sessionId), turnId);
-        if (runId != null) RunCredentialRegistry.clearRun(activeUserId(), sessionId, runId);
-        return result;
+        return hitl.cancel(session(id(id)), turnId);
     }
     /**
      * HITL 变化标记：执行相关事实水位 + Inbox 水位 + 当前执行是否持有租约。
@@ -666,50 +556,7 @@ public final class ChatSessions implements AutoCloseable {
     /** 提交一次新任务：一条用户消息触发一次 run。 */
     public AgentSession.Task submit(String session, String requestId, String text) {
         validateText(text);
-        String userId = activeUserId();
-        String sessionId = id(session);
-        String request = id(requestId);
-        AgentSession agentSession = session(sessionId);
-        // 必须在 Harness submit（后台可能立刻跑工具）之前绑定 command 凭证；禁止 submit 后再 bind。
-        String rawToken = SubmitCredentialCapture.current().orElse(null);
-        if (rawToken != null && !rawToken.isBlank()) {
-            RunCredentialRegistry.bindCommand(request, userId, sessionId, rawToken);
-        }
-        AgentSession.Task task;
-        try {
-            task = agentSession.submit(request, text);
-        } catch (RuntimeException error) {
-            RunCredentialRegistry.clearCommand(request, userId, sessionId);
-            throw error;
-        }
-        try {
-            if (rawToken != null && !rawToken.isBlank()) {
-                // 若 Harness 已带回 runId，arm 内同步确认关联并移交；终态清理仍走后台监管。
-                RunCredentialLifecycle.arm(agentSession, userId, sessionId, task);
-            }
-        } catch (RuntimeException error) {
-            RunCredentialRegistry.clearCommand(task.commandId(), userId, sessionId);
-            if (task.runId() != null) RunCredentialRegistry.clearRun(userId, sessionId, task.runId());
-            throw error;
-        }
-        return task;
-    }
-
-    /** Run 结束/失败后清理该 Run 凭证；不影响同会话其他活动 Run。 */
-    public void clearRunCredential(String sessionId, String runId) {
-        if (runId == null || runId.isBlank()) return;
-        RunCredentialRegistry.clearRun(activeUserId(), id(sessionId), runId);
-    }
-
-    /** 提交失败或命令被拒时清理尚未移交的 command 凭证。 */
-    public void clearCommandCredential(String sessionId, String commandId) {
-        RunCredentialRegistry.clearCommand(commandId, activeUserId(), id(sessionId));
-    }
-
-    /** @deprecated 使用 {@link #clearCommandCredential(String, String)}。 */
-    @Deprecated
-    public void clearCommandCredential(String commandId) {
-        RunCredentialRegistry.clearCommand(commandId);
+        return session(id(session)).submit(id(requestId), text);
     }
 
     /** 持久命令在接收时即有 commandId；runId 允许等调度启动后才生成。 */

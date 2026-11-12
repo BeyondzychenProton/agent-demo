@@ -1,12 +1,15 @@
 package com.beyondzy.demo.config;
 
 import com.beyondzy.demo.domain.user.UserBean;
-import com.beyondzy.demo.governance.GovernanceClient;
 import com.beyondzy.demo.mcp.McpAccess;
 import com.beyondzy.demo.mcp.McpClient;
 import com.beyondzy.demo.session.AgentSessionService;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.MySqlSessionLogStore;
+import io.agentscope.core.skill.repository.AgentSkillRepository;
+import io.agentscope.extensions.jdbc.dialect.AbstractJdbcDialect;
+import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
+import javax.sql.DataSource;
 import com.beyondzy.demo.display.DisplayIndexService;
 import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.user.UserService;
@@ -31,6 +34,17 @@ import org.springframework.context.annotation.Configuration;
 public class ChatConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(ChatConfiguration.class);
 
+    @Bean
+    AbstractJdbcDialect skillDialect(DataSource dataSource) {
+        return SkillJdbc.dialect(dataSource);
+    }
+
+    /** 默认可写。管理接口用它保存技能；模型侧不打开 skill_manage。 */
+    @Bean(destroyMethod = "close")
+    AgentSkillRepository skillRepository(DataSource dataSource, AbstractJdbcDialect skillDialect) {
+        return new JdbcAgentSkillRepository(dataSource, skillDialect);
+    }
+
     @Bean(destroyMethod = "close")
     ChatSessions sessions(
             MySqlSessionLogStore mySqlSessionLogStore,
@@ -43,13 +57,11 @@ public class ChatConfiguration {
             @Value("${chat.model}") String modelName,
             @Value("${chat.api-key}") String key,
             UserService users,
-            @Value("${governance.base-url:}") String governanceBaseUrl,
-            @Value("${governance.agent-token:}") String governanceAgentToken,
             @Value("${mcp.endpoint:}") String mcpEndpoint,
             @Value("${mcp.app-key:}") String mcpAppKey,
             @Value("${mcp.secret:}") String mcpSecret,
             @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
-            @Value("${mcp.skills-dir:}") String mcpSkillsDir)
+            AgentSkillRepository skillRepository)
             throws IOException {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
@@ -65,19 +77,6 @@ public class ChatConfiguration {
                         .build();
         // 创建工作区目录（本地工具文件根目录）
         Path workspacePath = Files.createDirectories(Path.of(workspace));
-        GovernanceClient governance = GovernanceClient.ifConfigured(governanceBaseUrl, governanceAgentToken);
-        if (governance == null) {
-            if (hasText(governanceBaseUrl) != hasText(governanceAgentToken)) {
-                logger.warn("治理接入未启用：需要同时配置 governance.base-url 与 governance.agent-token");
-            } else if (!hasText(governanceBaseUrl) && !hasText(governanceAgentToken)) {
-                logger.warn(
-                        "治理接入未启用：GOVERNANCE_BASE_URL / GOVERNANCE_AGENT_TOKEN 均为空；"
-                                + "不会挂载 Governance BoundTool");
-            }
-        } else {
-            logger.info("治理客户端已配置 baseUrl={}，将在 ChatSessions 启动时拉取 Snapshot 并挂载 BoundTool",
-                    governanceBaseUrl.trim());
-        }
         McpClient mcpClient = McpClient.ifConfigured(mcpEndpoint, mcpAppKey, mcpSecret);
         McpAccess mcp = null;
         if (mcpClient == null) {
@@ -89,12 +88,12 @@ public class ChatConfiguration {
             mcp = new McpAccess(
                     mcpClient,
                     userId -> phoneOf(users, userId),
-                    mcpDiscoveryPhone,
-                    hasText(mcpSkillsDir) ? Path.of(mcpSkillsDir.trim()) : null);
+                    mcpDiscoveryPhone);
         }
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
         return new ChatSessions(workspacePath, model,
-                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, governance, mcp);
+                mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, mcp,
+                skillRepository);
     }
 
     private static String phoneOf(UserService users, String userId) {

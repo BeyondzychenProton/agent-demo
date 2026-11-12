@@ -110,16 +110,7 @@ public final class AguiController {
     public Flux<ServerSentEvent<String>> run(
             @PathVariable String agentId, @RequestBody Map<String, Object> body) {
         return CurrentUser.requireUserId()
-                .zipWith(CurrentUser.requireRawToken().defaultIfEmpty(""))
-                .flatMapMany(tuple -> agui.run(
-                        String.valueOf(tuple.getT1()),
-                        blankToNull(tuple.getT2()),
-                        agentId,
-                        body));
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+                .flatMapMany(userId -> agui.run(String.valueOf(userId), agentId, body));
     }
 
     private static String str(Object value) {

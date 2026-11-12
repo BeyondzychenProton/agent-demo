@@ -54,17 +54,6 @@ public class AuthSessionService {
         return row;
     }
 
-    /**
-     * 只读校验：检查绝对有效期，不更新 {@code renewed_at} / {@code gmt_modified} / {@code expires_at}。
-     *
-     * <p>供机器内省等旁路调用；正常登录鉴权仍走 {@link #validateAndMaybeRenew(String)}。
-     */
-    public ValidatedSession validateReadOnly(String rawToken) {
-        AuthSessionBean row = findValidByRawToken(rawToken);
-        if (row == null) return null;
-        return new ValidatedSession(row, false);
-    }
-
     /** 在绝对过期前，若距上次续期已超过间隔则刷新 renewed_at。不延长 expires_at。 */
     @Transactional
     public ValidatedSession validateAndMaybeRenew(String rawToken) {

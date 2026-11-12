@@ -11,8 +11,7 @@ import org.mybatis.spring.annotation.MapperScan;
  * 快照现算视图 → SSE 按 cursor/Last-Event-ID 续增量 → 重启后从本地日志完整恢复。
  *
  * <p>运行时的模型与会话装配见 {@code com.beyondzy.demo.config.ChatConfiguration}。
- * {@code @MapperScan} 扫描 {@code com.beyondzy.demo.mapper} 根包及其
- * user/session/display/readmodel 子包。
+ * {@code @MapperScan} 扫描 {@code com.beyondzy.demo.mapper} 根包及其子包。
  */
 @SpringBootApplication
 @MapperScan("com.beyondzy.demo.mapper")

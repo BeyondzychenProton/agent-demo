@@ -104,31 +104,4 @@ class AuthSessionServiceTest {
         // 允许跨秒取整抖动，仍应按绝对过期计算秒级剩余。
         assertTrue(remaining >= 89 && remaining <= 90, "remaining=" + remaining);
     }
-
-    @Test
-    void validateReadOnlyNeverTouchesRenewedOrModifiedTimestamps() {
-        LocalDateTime expires = DbTimes.now().plus(Duration.ofDays(5));
-        LocalDateTime renewedAt = DbTimes.now().minus(Duration.ofDays(2));
-        LocalDateTime gmtModified = renewedAt.minusHours(3);
-        AuthSessionBean row = new AuthSessionBean();
-        row.setId(5L);
-        row.setUserId(1L);
-        row.setTokenHash(TokenHasher.sha256("raw-ro"));
-        row.setExpiresAt(expires);
-        row.setRenewedAt(renewedAt);
-        row.setGmtModified(gmtModified);
-        when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
-
-        var validated = service.validateReadOnly("raw-ro");
-
-        assertNotNull(validated);
-        assertFalse(validated.renewed());
-        assertEquals(expires, validated.row().getExpiresAt());
-        assertEquals(renewedAt, validated.row().getRenewedAt());
-        assertEquals(gmtModified, validated.row().getGmtModified());
-        verify(mapper, never()).updateRenewedAt(
-                ArgumentMatchers.anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
-        verify(mapper, never()).update(any(AuthSessionBean.class), any(Wrapper.class));
-        verify(mapper, never()).updateById(any(AuthSessionBean.class));
-    }
 }

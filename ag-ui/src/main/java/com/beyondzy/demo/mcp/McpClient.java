@@ -118,7 +118,7 @@ public final class McpClient implements McpToolCaller {
             return true;
         }
         if (name != null && KNOWN_READS.contains(name)) return false;
-        if (readOnlyHint != null) return !readOnlyHint;
+        // 未知工具默认需要审批，不把服务端提示当成授权策略。
         return true;
     }
 

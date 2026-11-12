@@ -133,7 +133,7 @@ class McpClientTest {
     @Test
     void unknownToolsAskUnlessMarkedReadOnly() {
         assertTrue(McpClient.writeOperation("calendar.create", null));
-        assertFalse(McpClient.writeOperation("calendar.create", true));
+        assertTrue(McpClient.writeOperation("calendar.create", true));
         assertFalse(McpClient.writeOperation("meeting.list_mine", false));
         assertTrue(McpClient.writeOperation("meeting.cancel", true));
     }

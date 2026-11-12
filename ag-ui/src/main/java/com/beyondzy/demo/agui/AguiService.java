@@ -1,7 +1,6 @@
 package com.beyondzy.demo.agui;
 
 import com.beyondzy.demo.agui.AguiEventProjection;
-import com.beyondzy.demo.auth.support.SubmitCredentialCapture;
 import com.beyondzy.demo.auth.support.UserContext;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.session.ThreadCatalog;
@@ -76,15 +75,9 @@ public final class AguiService {
         Map<String, Object> threadEndpoints =
                 new LinkedHashMap<>(Map.of("list", true, "inspect", true, "mutations", true, "realtimeMetadata", false));
 
-        Map<String, Object> governance = new LinkedHashMap<>();
-        governance.put("boundToolsMounted", sessions.governanceBoundToolsMounted());
-        governance.put("snapshotId", sessions.governanceSnapshotId());
-        governance.put("registeredTools", sessions.governanceRegisteredTools());
-
         Map<String, Object> mcp = new LinkedHashMap<>();
         mcp.put("mounted", sessions.mcpToolsMounted());
         mcp.put("registeredTools", sessions.mcpRegisteredTools());
-        mcp.put("skillsDir", sessions.mcpSkillsDir());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("version", "2.0.0");
@@ -98,8 +91,6 @@ public final class AguiService {
         result.put("openGenerativeUIEnabled", false);
         result.put("licenseStatus", "valid");
         result.put("telemetryDisabled", true);
-        // 复验探针：确认运行态是否真正挂上了 Governance BoundTool（不是仅有本地工具）
-        result.put("governance", governance);
         result.put("mcp", mcp);
         return result;
     }
@@ -273,15 +264,10 @@ public final class AguiService {
      * 轮询 committed 日志，把 model/chunk 文本 delta 翻成 TEXT_MESSAGE_*，run/end 收口。
      */
     public Flux<ServerSentEvent<String>> run(String agentId, Map<String, Object> body) {
-        return run(UserContext.current().orElse("local-user"), null, agentId, body);
+        return run(UserContext.current().orElse("local-user"), agentId, body);
     }
 
     public Flux<ServerSentEvent<String>> run(String userId, String agentId, Map<String, Object> body) {
-        return run(userId, null, agentId, body);
-    }
-
-    public Flux<ServerSentEvent<String>> run(
-            String userId, String rawSessionToken, String agentId, Map<String, Object> body) {
         String threadId = str(body.get("threadId"));
         if (threadId == null || threadId.isBlank()) threadId = newThreadId();
         String runId = str(body.get("runId"));
@@ -296,25 +282,17 @@ public final class AguiService {
         String finalThread = threadId;
         String finalRun = runId;
         String messageId = "msg-" + UUID.randomUUID();
-        String capturedToken = rawSessionToken;
 
         // 协议要求：run 流的第一个事件必须是 RUN_STARTED，随后才是 TEXT_MESSAGE_* 与 RUN_FINISHED
         Flux<ServerSentEvent<String>> started =
                 Flux.just(toSse(new AguiEvent.RunStarted(finalThread, finalRun)));
 
-        return blocking(userId, () -> SubmitCredentialCapture.call(capturedToken, () -> {
+        return blocking(userId, () -> {
                     // 提交前确定水位，否则快速完成的 chunk/run-end 可能被跳过。
                     long beforeSubmit = sessions.log(finalThread).head().seq();
-                    AgentSession.Task task;
-                    try {
-                        task = sessions.submit(finalThread, finalRun, userText);
-                    } catch (RuntimeException error) {
-                        // 提交失败时 ChatSessions 可能已 bindCommand：按协议 runId 作为 requestId/command 键清理。
-                        sessions.clearCommandCredential(finalThread, finalRun);
-                        throw error;
-                    }
+                    AgentSession.Task task = sessions.submit(finalThread, finalRun, userText);
                     return new Submitted(task, beforeSubmit);
-                }))
+                })
                 .flatMapMany(submitted -> started.concatWith(pollCommand(
                         userId,
                         finalThread,
@@ -331,8 +309,7 @@ public final class AguiService {
      *
      * <p>runId 为空时不推进游标，也不以 null 放开投影筛选，避免串入其他执行。
      * 执行编号生成后固定筛选目标；已快速结束的执行仍从提交前水位补读。
-     * 页面断开只停止观察，不撤销持久命令，也不清理 Run 凭证（移交与终态清理在
-     * {@code ChatSessions}/{@code RunCredentialLifecycle} 后台路径）。
+     * 页面断开只停止观察，不撤销持久命令。
      */
     private Flux<ServerSentEvent<String>> pollCommand(
             String userId, String threadId, String protocolRunId, String commandId, String messageId, long afterSeq) {

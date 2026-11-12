@@ -8,13 +8,13 @@
 
 > 提交任务 → committed 事实落 SessionLog → 快照现算视图 → SSE 按 cursor / Last-Event-ID 续增量 → 重启后从本地日志完整恢复；前端经 AG-UI 标准帧（info/threads/connect/run）连接，多会话列表 + 气泡流 + 历史快照恢复 + 逐字流式。
 
-**已接入首轮 HITL**：`write_note` 写入前审批，批准 / 拒绝、同会话串行接收、相同决定查回、冲突答复、等待期间取消、刷新与 Inbox 变化通知。审批卡片位于右侧“服务端视图”，不是左侧聊天输入框。
+**已接入首轮 HITL**：会议预约和取消等写操作执行前需要人工审批，支持批准、拒绝和等待期间取消。
 
 **不含**：信息补充表单、批量审批、参数修改后批准、执行中取消、steer/inject、A2UI/状态面板/PlanBoard、多实例审批协调、Redis/JDBC/OSS、鉴权、run 级裁剪。
 
 ### 首轮人工审批使用方式
 
-发送“请把测试内容保存到 notes/approval.md”，Agent 提出 `write_note` 后不会立即写入；展开右侧卡片，可填写说明并批准、拒绝或取消任务。页面分别展示人工决定和工具执行结果。提交超时后先查询当前结果，不把超时视为未接收。
+发起会议预约或取消后，Agent 提出写操作时，在页面审批卡片中批准或拒绝。页面分别展示人工决定和工具执行结果；提交超时后先查询当前结果，不把超时视为未接收。
 
 - 查询：`GET /api/threads/{id}/view`，联合执行日志和 Inbox 恢复完整交互状态。
 - 答复：`POST /api/threads/{id}/interactions/{requestId}/answer`，请求体为 `{"decision":"approve","reason":""}`；拒绝使用 `reject`。
@@ -22,7 +22,7 @@
 - 通知：`GET /api/threads/{id}/interactions/events`，从双日志水位发现变化，触发页面重新查询，不复用执行日志 cursor。
 - 接收协调为单进程会话锁；多设备可连接同一实例，多实例部署需要共享协调。
 - 持久记录复用框架日志与 Inbox，不建立独立审批表。执行中崩溃或外部效果不确定时不承诺自动重跑。
-已接入 3 个演示工具（`lookup_order` / `search_docs` / `write_note`），用于验证 6.1 工具卡片两条来源链路。
+当前注册会议 MCP 工具与会议时间解析所需的时钟工具；技能加载和异步等待由框架提供。
 后端原有 `/api` 最小闭环接口保持不变，与 `/agui/run` 协议面并存。
 
 ### 后端阅读顺序
@@ -50,94 +50,21 @@
 | `chat.api-key` | 私有 key，**只存本地本文件，勿提交版本库、勿打印日志**；也可用环境变量覆盖 |
 | `chat.workspace` | SessionLog 落盘根目录，默认 `~/.agentscope/haizhuo-demo`，**重启恢复的权威来源** |
 | `server.port` | 默认 8087，仅监听 127.0.0.1 |
-| `governance.base-url` | 治理底座基址，环境变量 `GOVERNANCE_BASE_URL`，默认空（不接入） |
-| `governance.agent-token` | Agent 令牌，环境变量 `GOVERNANCE_AGENT_TOKEN`；tenant/app/subject 由治理映射 |
-| `chat.identity-connector.shared-key` | 身份连接器机器共享密钥，环境变量 `IDENTITY_CONNECTOR_SHARED_KEY`；**勿把真实 Secret 写入仓库** |
 | `mcp.endpoint` | 本地直连 MCP 地址，默认 `https://cms-test-k8s.shsets.com/stage-api/mcp` |
 | `mcp.app-key` / `mcp.secret` | 测试环境 App Key 与 HMAC Secret，环境变量 `MCP_APP_KEY`、`MCP_SECRET` |
-| `mcp.discovery-phone` | 仅启动时 `tools/list` 使用的手机号，默认种子用户；业务调用仍用当前登录用户 |
-| `mcp.skills-dir` | 会议技能目录。目录存在且含 `SKILL.md` 时用它，否则用内置 `meeting-booking` |
+| `mcp.discovery-phone` | 仅启动时 `tools/list` 使用的满天星有效员工手机号；业务调用仍用当前登录用户 |
 
 所有项都可用同名环境变量覆盖（Spring 占位符）；`chat.api-key` 留空时启动即报中文错误，不静默降级。
 
-### 2.1 治理底座接入（Agent 经治理用工具）
 
-设计说明见 [`docs/governance-agentscope-bridge.md`](docs/governance-agentscope-bridge.md)。治理路径只做 HTTP 客户端 + Snapshot 工具装配，**不**依赖治理工程的 Java 模块、**不**访问其数据库、**不**在这条路径保存 MCP Secret、**不**由治理失败后退到直连 MCP。
+### 2.1 本地直连满天星 MCP
 
-配置占位（`.env.example`）：
-
-```text
-GOVERNANCE_BASE_URL=http://127.0.0.1:8091
-GOVERNANCE_AGENT_TOKEN=replace-with-agent-token
-IDENTITY_CONNECTOR_SHARED_KEY=replace-with-shared-machine-key
-```
-
-联调时令牌使用治理侧映射，例如 `dev-agent-invoke-demo-token`（对应 subject `agent-invoke-demo`）。治理路径不保存 MCP HMAC Secret，本工程也不写手机号给治理，可信 phone 由治理回调下方内省 API 取得。本地直连见 §2.2。
-
-> **联调状态：pending_reverify。** 历史双账号只读联调曾跑通（见治理仓 `docs/superpowers/evidence/2026-11-09-trusted-user-real-integration-report.md`）；当前因 Demo 侧 Run 凭证隔离/生命周期清理与内省只读问题修复中，治理侧 `REAL_USER_INGRESS` 不应再视为已完成。身份域示例 `mantianxing.user` 仅为治理可配置值，**不要**写死进本工程业务逻辑。
-
-#### 身份桥梁（opaque_session_introspection）
-
-| Demo 侧 | 值 |
-|---|---|
-| 内省路径 | `POST /api/internal/identity/session/introspect` |
-| 机器密钥头 | `X-Identity-Connector-Key: <IDENTITY_CONNECTOR_SHARED_KEY>`（亦接受治理 `X-Client-Authorization: Basic base64(appKey:secret)`，校验 secret） |
-| 用户会话 | `Authorization: Bearer <rawSessionToken>`（与登录 Cookie/Bearer 同源） |
-| 成功响应 | `200` + `{ valid, userId, phone, name, authSessionId?, expiresAt? }`；`phone` 来自 `app_user` |
-| 无效会话 / 坏机器密钥 | **`401`**（不用 `200+valid:false`；治理按非 2xx 失败） |
-
-| 治理 Identity Connector 字段 | 建议对齐 |
-|---|---|
-| `protocolType` | `opaque_session_introspection` |
-| `baseUrl` | demo 基址，如 `http://127.0.0.1:8087` |
-| `introspectPath` | `/api/internal/identity/session/introspect` |
-| `httpMethod` | `POST` |
-| `clientAuthType` | `credential_ref`（Secret = 与 `IDENTITY_CONNECTOR_SHARED_KEY` 相同的共享密钥） |
-| `inboundCredentialType` | `opaque_session` |
-| `forwardHeaderName` / `forwardHeaderPrefix` | `Authorization` / `Bearer ` |
-| `responseUserIdPath` / `responsePhonePath` / `responseNamePath` | `userId` / `phone` / `name`（点路径，**不要**写 `$.phone`） |
-
-Agent 出站：`snapshot` 只带 `X-Agent-Token`；`invoke` 额外带 `X-Trusted-User-Credential` + `X-Trusted-User-Credential-Type: opaque_session`（提交任务时捕获的 rawSessionToken，Run 作用域绑定，禁止串用）。
-
-**两个工程启动顺序：**
-
-1. 启动 `D:\qwenWork\agent-governance`（默认 `127.0.0.1:8091`），确认 `GET /health`。
-2. 在治理侧准备专属测试卡片、契约，并向 `agent-invoke-demo` 授权 `identity.resolve`（不要动用户既有授权）。
-3. 导出上述两个环境变量后启动本工程 `ag-ui`（`127.0.0.1:8087`）。
-4. 登录现有聊天入口，发送：「帮我查询田沐阳的信息。」
-5. 撤权验收：保持本进程与原会话（**不要**重启），在治理端撤销专属测试授权，再问一次；应收到 `AUTHZ_DENIED`，且无直连 MCP 兜底。
-
-**Snapshot 生命周期：**
-
-| 时机 | 行为 |
-|---|---|
-| 进程启动且已配置治理 | 拉一次 `GET /api/agent/snapshot/current`，整组注册工具描述与固定执行器，再构建 HarnessAgent |
-| 需要更新工具 | 当前任务结束后重启 `ag-ui`；新进程再拉 Snapshot 并重新装配 |
-| 进程重启 | 新建 Snapshot 并重新装配；不删除或改写 SessionLog 历史消息与用户数据 |
-| 本轮不做 | 运行中在线刷新、后台自动刷新、自动重绑定、自动无限重试 |
-
-注册名：`identity.resolve` → `identity_resolve`（OpenAI 兼容函数名）；URI 存在执行器里，不从名称反推。
-
-**自动化测试（HTTP 桩，不依赖真实 MCP）：**
-
-```powershell
-cd D:\qwenWork\agentscope-learn-demo\ag-ui
-mvn "-Dtest=GovernanceClientTest,GovernanceToolAssemblyTest,SessionIntrospectionServiceTest,IdentityConnectorKeySupportTest,SessionIntrospectControllerTest,RunCredentialIsolationTest,RunCredentialLifecycleTest" test
-```
-
-覆盖：Snapshot 转换与名称映射、执行器固定 snapshotId/URI、arguments 原样透传且不能覆盖外层身份/绑定、结果与错误分类、新实例重启装配而旧实例绑定不变、装配后拒绝运行中替换、撤权拒绝、脚本模型走 Harness 选工具且闲聊不强制调用；会话内省契约、机器密钥、两用户并发内省手机号隔离、invoke 用户头、并发 Run 凭证隔离、缺凭证失败闭合、登出/过期后内省失败、凭证不落盘（SessionLog/Workspace）。
-
-**真实对话证据（脱敏）与已知限制：** 见文末「治理接入验收」一节；细节与待对齐项见设计文档。
-
-### 2.2 本地直连满天星 MCP
-
-治理底座还没接上会议工具时，进程按 `mcp.endpoint` 直接调用测试环境 MCP，并加载会议技能，供当前登录用户预约、查询和取消会议。地址默认是 `https://cms-test-k8s.shsets.com/stage-api/mcp`；只换主机、路径不变。需要改完整地址时设置 `MCP_ENDPOINT`。
+进程按 `mcp.endpoint` 直接调用测试环境 MCP。会议技能通过 `POST /api/skills/archive` 上传 ZIP 并保存在数据库中，上传内容应与实际 MCP 工具契约一致。
 
 - 启动时用 `mcp.discovery-phone` 做一次 `initialize` 和 `tools/list`，把工具注册进会话。点号会变成下划线，例如 `identity.resolve` 注册为 `identity_resolve`。
 - 每次 `tools/call` 重新用**当前登录用户**的手机号签名。模型参数里的手机号只当作参会人等业务参数，不能换成发起人。
 - `room_reserve` 和 `meeting_cancel` 走人工批准；查询工具直接执行。
-- 技能优先读 `mcp.skills-dir`。本机目录 `D:/code project/agentscope/claude-skills/productivity/meeting-booking` 存在时用那里的技能；没有这个目录时，使用仓库内置的 `meeting-booking`。
-- 启动后看 `GET /agui/info` 的 `mcp.registeredTools` 和 `mcp.skillsDir`。发现失败只记警告，本地演示工具和已有会话仍可使用。
+- 启动后看 `GET /agui/run/info` 的 `mcp.registeredTools`。发现失败只记警告，本地演示工具和已有会话仍可使用。
 - 写操作不自动重试。`IN_PROGRESS` 或结果不确定时停止，不要更换 `requestId` 再提交。
 
 ## 3. 后端构建与启动（PowerShell）
@@ -203,13 +130,7 @@ run 流的事件翻译：以提交前 head.seq 为水位，300ms 轮询 committe
 
 工具事件映射：`tool/requested` → `TOOL_CALL_START` + 完整参数；`model/chunk` 工具分片 → `TOOL_CALL_ARGS` delta；`tool/chunk` → `CUSTOM(tool-progress)`；`action/end` / `tool/result` → `TOOL_CALL_END` + `TOOL_CALL_RESULT`；`run/end` 前闭合所有 open text/tool。
 
-演示工具：
-
-| 工具 | 用途 | 前端卡片 |
-|---|---|---|
-| `lookup_order(order_id)` | 内存订单表 A1001/A1002，执行中发进度 | `useRenderTool` 定制订单卡 |
-| `search_docs(query)` | 固定文档集检索 | 未注册，走默认折叠块 |
-| `write_note(path, content)` | 只写 workspace/notes，返回 added/deleted | 通用卡 + diffStats |
+会议工具在启动时从 MCP 动态发现；`get_current_time` 用于解析会议相对日期。旧工具卡片的展示兼容逻辑仍用于历史记录。
 
 > 从「模型吐 tool_use」到「前端卡片」的逐步讲解见 `docs/learning/工具调用事件全链路说明.md`。
 > 快照/增量契约逐字段说明见 `docs/learning/ThreadView契约说明.md`。
@@ -267,18 +188,16 @@ com.beyondzy.demo
 │  └─ AguiEventProjection.java
 ├─ contract/                         // 前端契约 DTO
 │  └─ ThreadView.java
-├─ tools/                            // M7：演示工具
+├─ tools/                            // 时钟工具与历史工具卡片元数据
 │  ├─ ToolCatalog.java
-│  ├─ OrderTools.java
-│  ├─ DocSearchTools.java
-│  ├─ NoteTools.java
+│  ├─ ClockTools.java
 │  └─ LineDiff.java
 └─ support/                          // 跨模块纯工具
    ├─ Payloads.java
    └─ ContentValues.java
 ```
 
-已实现：`hitl/`（M6 工具审批）、`governance/`（经治理底座 Snapshot/invoke 使用工具，见 §2.1）。
+已实现：`hitl/`（M6 工具审批）。
 
 | 类 | 对应大纲模块 | 职责 |
 |---|---|---|
@@ -317,7 +236,7 @@ com.beyondzy.demo
 - 单进程本地 `WorkspaceSessionLogStore`，未接 Redis 热层 / MySQL JDBC / OSS（5.2.2 生产替换点）。
 - 会话列表摘要持久化在工作区的 SQLite 读取索引中，按更新时间分页；已完成会话的展示快照按日志序号跨进程复用，活动 Run 始终读取最新事实。首次升级打开某个旧会话时需要扫描一次本地日志并填充索引。
 - 性能改造的设计、测量口径和验收项见 `docs/learning/会话加载性能优化方案.md`。
-- 无鉴权、无多租户；审批同会话协调限单进程。已接入 write_note 挂起答复，尚未启用信息补充、执行中取消与 A2UI/状态面板/PlanBoard。
+- 审批同会话协调限单进程；旧版演示工具不再注册，历史工具记录仍可展示。
 - **AG-UI 标准帧没有工具进度帧**：`tool/chunk` 只能落成 `CUSTOM(name=tool-progress)`；CopilotKit v2 的 `useRenderTool` 只暴露 `inProgress/executing/complete`，不暴露 progress。6.1.9 的“进度进卡片”在 live 路径上需要自定义消费方，标准 hook 做不到。
 - **live 与 snapshot 的 runId 口径不同**：live 帧使用 AG-UI 请求 runId，snapshot 使用框架 `executionRunId`；本轮不做统一，卡片按 `toolCallId` 归并没有冲突。
 - **现有 `ThreadCatalog` 的 4 张 SQLite 表**（`thread_catalog` / `display_*`）是可重建读索引，但性质上是元数据表 + 页面模型表，与大纲“应用层不建任何业务表”存在取舍。本轮不修改，验证结论记录在 `docs/superpowers/specs/2026-11-01-tool-card-e2e-design.md`。
@@ -336,34 +255,3 @@ com.beyondzy.demo
 | B 路线增量 | `GET /api/threads/e2e1/view/events?after=e2e1:357` 收到 `message-delta → card-status(generating_arguments) → card-args → requested → running → progress×2 → card-result(completed) → message-delta×N → run-finished` |
 | 重启恢复 | 停止后端并重启后，`e2e1` 快照仍为 9 项，3 张工具卡状态与 diffStats 不变 |
 | 测试/构建 | `mvn test` 12 个测试通过；`npm run build`（tsc --noEmit && vite build）EXIT=0 |
-
-## 9. 治理接入验收（2026-11-09）
-
-| 项 | 状态 |
-|---|---|
-| 设计文档 | [`docs/governance-agentscope-bridge.md`](docs/governance-agentscope-bridge.md) |
-| HTTP 客户端 / Snapshot 装配 / 会话生命周期 | 已实现于 `com.beyondzy.demo.governance` + `ChatSessions` |
-| 自动化 | `GovernanceClientTest` + `GovernanceToolAssemblyTest` **通过**（HttpServer 桩，不连真实 MCP） |
-| 真实对话 | 需治理侧专属测试卡授权后，从现有聊天入口验证；证据写入本节下方（脱敏） |
-
-### 9.1 真实对话证据（脱敏）
-
-日期：2026-11-09。治理 `8091` + 本工程 `8087`；令牌 `dev-agent-invoke-demo-token`；专属卡 `cms-agentscope-bridge-ro`（非用户既有授权）；装配 Snapshot `snap_40f2af5d0feb4e618579c9083d30194c`。会话 `gov-bridge2-20261109085948`，入口 `POST /api/sessions/{id}/turns`。
-
-| 步骤 | 结果 | 证据层级 |
-|---|---|---|
-| 「帮我查询田沐阳的信息。」 | 模型选 `identity_resolve` → 治理 invoke → `POST_ACTING … state=SUCCESS`；业务侧可见 `RESOLVED` / `OK`（档案正文不写入文档） | 真实对话 + 服务端日志 |
-| 治理撤销专属 grant 后同会话再问 | 再次选 `identity_resolve` → `POST_ACTING … state=ERROR`；结果含 `AUTHZ_DENIED`；助手说明「这次查询没有成功」；未重启进程、无直连 MCP | 真实对话 + 服务端日志 |
-| 闲聊不强制调工具 | 自动化 `GovernanceToolAssemblyTest` 脚本模型覆盖 | 自动化 |
-
-### 9.2 已知限制与未完成项
-
-- **真实用户入站联调：pending_reverify**（勿再写 `REAL_USER_INGRESS=completed`）：历史双账号只读曾跑通；当前 Demo 侧正修复 Run 凭证严格隔离/清理与内省只读续期副作用，修复后需与治理侧复验。
-- 未配置 `GOVERNANCE_BASE_URL` / `GOVERNANCE_AGENT_TOKEN` 时行为与接入前一致（仅本地演示工具）。
-- 更新工具：本轮只支持重启进程重新装配；不支持运行中在线刷新，无独立 HTTP 刷新口、无后台自动刷新。
-- 系统提示词与工具都在启动构建时固定；要一并更新，需在当前任务结束后重启进程。重启不清除会话历史。
-- 撤权验收：必须保持原进程与旧 Snapshot，不要先重启。
-- 治理临时不可达：启动警告并继续本地会话；不改写已有 SessionLog。
-- 候选人 / `NOT_FOUND` 交互依赖真实 MCP 数据；无法稳定构造时以契约样例 + 自动化错误分类为辅证。
-- 本轮不执行会议预约/取消，不操作用户既有授权，日志与文档不输出 Secret 或完整人员资料。
-- 若契约字段变更，需求交给治理工程，本工程不绕过。

@@ -1,0 +1,124 @@
+package com.beyondzy.demo.service.skill.impl;
+
+import com.beyondzy.demo.domain.skill.SkillBean;
+import com.beyondzy.demo.exception.skill.SkillException;
+import com.beyondzy.demo.mapper.skill.SkillMapper;
+import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
+import com.beyondzy.demo.service.skill.SkillCatalogService;
+import com.beyondzy.demo.service.skill.SkillDocuments;
+import com.beyondzy.demo.service.skill.SkillPage;
+import com.beyondzy.demo.service.skill.SkillUpload;
+import com.beyondzy.demo.service.skill.SkillView;
+import io.agentscope.core.skill.AgentSkill;
+import io.agentscope.core.skill.repository.AgentSkillRepository;
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.stereotype.Service;
+
+/** 技能目录。保存和删除只调用 JDBC 技能库，保证和 Agent 读到的是同一份。 */
+@Service
+public class SkillCatalogServiceImpl implements SkillCatalogService {
+    private final AgentSkillRepository repository;
+    private final SkillMapper skills;
+    private final SkillResourceMapper resources;
+
+    public SkillCatalogServiceImpl(
+            AgentSkillRepository repository, SkillMapper skills, SkillResourceMapper resources) {
+        this.repository = repository;
+        this.skills = skills;
+        this.resources = resources;
+    }
+
+    @Override
+    public SkillView saveMarkdown(byte[] body, boolean overwrite) {
+        SkillDocuments.Parsed parsed = SkillDocuments.markdown(body);
+        store(parsed, overwrite);
+        return detail(parsed.name(), false);
+    }
+
+    @Override
+    public SkillView saveArchive(byte[] zip, boolean overwrite) {
+        SkillDocuments.Parsed parsed = SkillDocuments.archive(zip);
+        store(parsed, overwrite);
+        return detail(parsed.name(), false);
+    }
+
+    @Override
+    public SkillView saveFiles(List<SkillUpload> files, boolean overwrite) {
+        SkillDocuments.Parsed parsed = SkillDocuments.files(files);
+        store(parsed, overwrite);
+        return detail(parsed.name(), false);
+    }
+
+    @Override
+    public SkillPage list(int page, int size) {
+        if (page < 1 || size < 1 || size > 100) throw new SkillException(400, "分页参数不合法");
+        long total = skills.countAll();
+        List<SkillPage.SkillSummary> items = skills.page(size, (long) (page - 1) * size).stream()
+                .map(SkillCatalogServiceImpl::summary)
+                .toList();
+        return new SkillPage(items, total, page, size);
+    }
+
+    @Override
+    public SkillView detail(String name, boolean includeBodies) {
+        SkillBean row = requireRow(name);
+        List<String> paths = row.getId() == null ? List.of() : resources.findPaths(row.getId());
+        AgentSkill skill = includeBodies ? repository.getSkill(name) : null;
+        List<SkillView.SkillResource> files = new ArrayList<>();
+        for (String path : paths) {
+            String content = skill == null ? null : skill.getResource(path);
+            files.add(new SkillView.SkillResource(path, SkillDocuments.kind(path), content));
+        }
+        return new SkillView(
+                row.getName(),
+                row.getDescription(),
+                row.getSource(),
+                row.getCreatedAt(),
+                row.getUpdatedAt(),
+                skill == null ? null : skill.getSkillContent(),
+                List.copyOf(files));
+    }
+
+    @Override
+    public void delete(String name) {
+        requireRow(name);
+        repository.delete(name);
+    }
+
+    void store(SkillDocuments.Parsed parsed, boolean overwrite) {
+        AgentSkill skill = AgentSkill.builder()
+                .name(parsed.name())
+                .description(parsed.description())
+                .skillContent(parsed.skillContent())
+                .metadata(parsed.metadata())
+                .resources(parsed.resources())
+                .source(repository.getSource())
+                .build();
+        try {
+            repository.save(List.of(skill), overwrite);
+        } catch (IllegalStateException error) {
+            if (error.getMessage() != null && error.getMessage().contains("already exist")) {
+                throw new SkillException(409, "技能已存在: " + parsed.name());
+            }
+            throw error;
+        } catch (IllegalArgumentException error) {
+            throw new SkillException(400, error.getMessage());
+        }
+    }
+
+    private SkillBean requireRow(String name) {
+        if (name == null || !SkillDocuments.NAME.matcher(name).matches()) {
+            throw new SkillException(400, "技能名不合法");
+        }
+        SkillBean row = skills.findSummary(name);
+        if (row == null) throw new SkillException(404, "技能不存在: " + name);
+        return row;
+    }
+
+    private static SkillPage.SkillSummary summary(SkillBean row) {
+        int count = row.getResourceCount() == null ? 0 : row.getResourceCount();
+        return new SkillPage.SkillSummary(
+                row.getName(), row.getDescription(), row.getCreatedAt(), row.getUpdatedAt(), count);
+    }
+}

@@ -80,12 +80,9 @@ class McpToolMountTest {
     @Test
     void promptStaysUnchangedUntilMcpToolsAreMounted() {
         String base = ChatSessions.systemPrompt(false);
-        assertEquals(base, ChatSessions.systemPrompt(false, false));
         assertFalse(base.contains("满天星"));
-        String governed = ChatSessions.systemPrompt(true);
-        assertTrue(governed.contains("治理查询工具"));
-        assertFalse(governed.contains("meeting-booking"));
-        assertTrue(ChatSessions.systemPrompt(false, true).contains("identity_resolve"));
+        assertTrue(ChatSessions.systemPrompt(true).contains("根据当前可用工具的描述和参数"));
+        assertFalse(ChatSessions.systemPrompt(true).contains("identity_resolve"));
     }
 
     private static String text(ToolResultBlock block) {
