@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.SkillTestSchema;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.mcp.McpBoundTool;
 import com.beyondzy.demo.mcp.McpCallResult;
@@ -109,6 +110,7 @@ class ChatSessionsSkillWiringTest {
         JdbcDataSource dataSource = new JdbcDataSource();
         dataSource.setURL("jdbc:h2:mem:wiring-" + System.nanoTime() + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
         dataSource.setUser("sa");
+        SkillTestSchema.create(dataSource);
         return dataSource;
     }
 

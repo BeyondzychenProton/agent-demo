@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
-import com.beyondzy.demo.config.skill.SkillSchema;
 import io.agentscope.core.skill.AgentSkill;
 import io.agentscope.extensions.jdbc.dialect.AbstractJdbcDialect;
 import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
@@ -19,27 +18,22 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** H2 上走官方 JDBC 技能库：空库建表，保存后能读回，删除时资源级联消失。 */
+/** H2 上走官方 JDBC 技能库：预建表后保存能读回，删除时资源级联消失。 */
 class SkillJdbcRoundTripTest {
 
     @Test
-    void emptyStartupCreatesOnlySkillTables() throws Exception {
+    void emptyStartupDoesNotCreateTables() throws Exception {
         DataSource dataSource = memory();
-        AbstractJdbcDialect dialect = SkillJdbc.dialect(dataSource);
-        assertFalse(dialect.isBaseTablesEnabled());
-        assertTrue(dialect.isSkillTablesEnabled());
-        try (JdbcAgentSkillRepository ignored = new JdbcAgentSkillRepository(dataSource, dialect)) {
-            List<String> tables = tableNames(dataSource);
-            assertTrue(tables.contains("agentscope_skills"), tables.toString());
-            assertTrue(tables.contains("agentscope_skill_resources"), tables.toString());
-            assertEquals(2, tables.size(), tables.toString());
-        }
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> SkillJdbc.dialect(dataSource));
+        assertTrue(error.getMessage().contains("agentscope_skills"));
+        assertTrue(tableNames(dataSource).isEmpty());
     }
 
     @Test
-    void startupSqlCreatesTheSameTwoTables() throws Exception {
+    void manualSqlCreatesBothSkillTables() throws Exception {
         DataSource dataSource = memory();
-        SkillSchema.ensure(new JdbcTemplate(dataSource));
+        SkillTestSchema.create(dataSource);
         List<String> tables = tableNames(dataSource);
         assertTrue(tables.contains("agentscope_skills"), tables.toString());
         assertTrue(tables.contains("agentscope_skill_resources"), tables.toString());
@@ -48,7 +42,10 @@ class SkillJdbcRoundTripTest {
     @Test
     void saveGetAndDeleteCascadeResources() {
         DataSource dataSource = memory();
+        SkillTestSchema.create(dataSource);
         AbstractJdbcDialect dialect = SkillJdbc.dialect(dataSource);
+        assertFalse(dialect.isBaseTablesEnabled());
+        assertTrue(dialect.isSkillTablesEnabled());
         try (JdbcAgentSkillRepository repo = new JdbcAgentSkillRepository(dataSource, dialect)) {
             AgentSkill skill = AgentSkill.builder()
                     .name("meeting-booking")

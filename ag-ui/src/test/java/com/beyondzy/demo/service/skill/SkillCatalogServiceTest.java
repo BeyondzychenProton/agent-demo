@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.SkillTestSchema;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
@@ -152,6 +153,7 @@ class SkillCatalogServiceTest {
         dataSource.setURL("jdbc:h2:mem:catalog-" + System.nanoTime()
                 + ";MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
         dataSource.setUser("sa");
+        SkillTestSchema.create(dataSource);
         return new RecordingDataSource(dataSource);
     }
 

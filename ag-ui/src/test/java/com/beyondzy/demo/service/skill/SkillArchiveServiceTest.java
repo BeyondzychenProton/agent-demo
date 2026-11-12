@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.SkillTestSchema;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
@@ -153,6 +154,7 @@ class SkillArchiveServiceTest {
             dataSource.setURL("jdbc:h2:mem:archive-" + System.nanoTime()
                     + ";MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
             dataSource.setUser("sa");
+            SkillTestSchema.create(dataSource);
             JdbcAgentSkillRepository repo = new JdbcAgentSkillRepository(dataSource, SkillJdbc.dialect(dataSource));
             MybatisConfiguration configuration = new MybatisConfiguration(new Environment(
                     "archive-test", new JdbcTransactionFactory(), dataSource));

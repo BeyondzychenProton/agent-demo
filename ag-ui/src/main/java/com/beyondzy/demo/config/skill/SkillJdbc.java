@@ -20,7 +20,7 @@ public final class SkillJdbc {
                 .enableSkillTables(true)
                 .skillTableName(SKILL_TABLE)
                 .skillResourcesTableName(RESOURCE_TABLE)
-                .autoCreateTable(true)
+                .autoCreateTable(false)
                 .build();
     }
 }
