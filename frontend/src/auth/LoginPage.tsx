@@ -1,11 +1,10 @@
 import { FormEvent, useState } from "react";
 import { login, type AuthUser } from "@/auth/api";
 
-const DEMO_PHONE = "13636528157";
 
 export function LoginPage({ onSuccess }: { onSuccess: (user: AuthUser) => void }) {
-  const [phone, setPhone] = useState(DEMO_PHONE);
-  const [password, setPassword] = useState(DEMO_PHONE);
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 

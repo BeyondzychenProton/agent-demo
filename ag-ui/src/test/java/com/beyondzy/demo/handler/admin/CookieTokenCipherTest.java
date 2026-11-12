@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class CookieTokenCipherTest {
     @Test
     void roundTripPreservesToken() {
-        CookieTokenCipher cipher = new CookieTokenCipher("local-dev-cookie-secret-change-me!!");
+        CookieTokenCipher cipher = new CookieTokenCipher("test-cookie-secret-0123456789");
         String raw = "abcdef0123456789abcdef0123456789";
         String encoded = cipher.encrypt(raw);
         assertNotEquals(raw, encoded);
@@ -18,7 +18,7 @@ class CookieTokenCipherTest {
 
     @Test
     void tamperedCipherTextFails() {
-        CookieTokenCipher cipher = new CookieTokenCipher("local-dev-cookie-secret-change-me!!");
+        CookieTokenCipher cipher = new CookieTokenCipher("test-cookie-secret-0123456789");
         String encoded = cipher.encrypt("token-value");
         String broken = encoded.substring(0, encoded.length() - 2) + "aa";
         assertThrows(IllegalArgumentException.class, () -> cipher.decrypt(broken));

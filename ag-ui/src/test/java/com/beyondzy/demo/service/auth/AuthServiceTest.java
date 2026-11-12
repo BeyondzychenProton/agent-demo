@@ -21,11 +21,11 @@ class AuthServiceTest {
         AuthSessionService sessions = mock(AuthSessionService.class);
         UserBean user = new UserBean();
         user.setId(1L);
-        user.setPhone("13636528157");
-        when(users.findByPhone("13636528157")).thenReturn(user);
+        user.setPhone("13900000000");
+        when(users.findByPhone("13900000000")).thenReturn(user);
         when(users.matchesPassword(user, "wrong")).thenReturn(false);
         AuthService auth = new AuthServiceImpl(users, sessions);
-        assertThrows(ResponseStatusException.class, () -> auth.login("13636528157", "wrong"));
+        assertThrows(ResponseStatusException.class, () -> auth.login("13900000000", "wrong"));
     }
 
     @Test
@@ -35,15 +35,15 @@ class AuthServiceTest {
         UserBean user = new UserBean();
         user.setId(1L);
         user.setName("演示用户");
-        user.setPhone("13636528157");
-        when(users.findByPhone("13636528157")).thenReturn(user);
-        when(users.matchesPassword(user, "13636528157")).thenReturn(true);
+        user.setPhone("13900000000");
+        when(users.findByPhone("13900000000")).thenReturn(user);
+        when(users.matchesPassword(user, "test-fixture-password")).thenReturn(true);
         AuthSessionBean row = new AuthSessionBean();
         row.setId(8L);
         row.setExpiresAt(DbTimes.now().plusSeconds(1));
         when(sessions.create(1L)).thenReturn(new AuthSessionService.CreatedSession("raw-token", row));
         AuthService auth = new AuthServiceImpl(users, sessions);
-        var result = auth.login("13636528157", "13636528157");
+        var result = auth.login("13900000000", "test-fixture-password");
         assertEquals("raw-token", result.session().rawToken());
         assertEquals(1L, result.user().getId());
     }
