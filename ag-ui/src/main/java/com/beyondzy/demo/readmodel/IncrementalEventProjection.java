@@ -1,6 +1,6 @@
 package com.beyondzy.demo.readmodel;
 
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.support.ContentValues;
 import com.beyondzy.demo.support.Payloads;
 import com.beyondzy.demo.tools.ToolCatalog;

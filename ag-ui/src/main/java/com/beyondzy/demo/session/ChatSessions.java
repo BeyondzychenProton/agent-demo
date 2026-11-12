@@ -1,8 +1,12 @@
 package com.beyondzy.demo.session;
 
-import com.beyondzy.demo.auth.support.UserContext;
-import com.beyondzy.demo.mcp.McpAccess;
+import com.beyondzy.demo.exception.session.SessionNotFoundException;
+
+import com.beyondzy.demo.service.session.AgentSessionService;
+
+import com.beyondzy.demo.contract.UserContext;
 import com.beyondzy.demo.mcp.McpBoundTool;
+import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolMount;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
@@ -19,16 +23,16 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.session.AgentSession;
 import io.agentscope.core.session.SessionLogStore;
-import com.beyondzy.demo.display.DisplayIndexService;
+import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
 import com.beyondzy.demo.readmodel.ChatHistory;
 import com.beyondzy.demo.readmodel.ProjectionService;
-import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import com.beyondzy.demo.tools.ClockTools;
 import com.beyondzy.demo.tools.CurrentUserTool;
-import com.beyondzy.demo.user.UserService;
+import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -128,24 +132,24 @@ public final class ChatSessions implements AutoCloseable {
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
-            AgentSessionService agentSessionService, McpAccess mcp) {
+            AgentSessionService agentSessionService, List<McpServer> mcpServers) {
         this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
-                agentSessionService, mcp, null);
+                agentSessionService, mcpServers, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
-            AgentSessionService agentSessionService, McpAccess mcp,
+            AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository) {
         this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
-                agentSessionService, mcp, skillRepository, null);
+                agentSessionService, mcpServers, skillRepository, null);
     }
 
     public ChatSessions(Path workspace, Model model,
             SessionLogStore sessionLogStore, String userId,
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
-            AgentSessionService agentSessionService, McpAccess mcp,
+            AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository, UserService users) {
         if (sessionLogStore == null || readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
@@ -157,21 +161,18 @@ public final class ChatSessions implements AutoCloseable {
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new ClockTools());
         if (users != null) toolkit.registerAgentTool(new CurrentUserTool(users));
-        List<McpBoundTool> mcpTools = List.of();
-        if (mcp != null) {
+        List<McpServer> servers = mcpServers == null ? List.of() : mcpServers;
+        List<McpBoundTool> mcpTools = new ArrayList<>();
+        for (McpServer server : servers) {
             try {
-                mcpTools = McpToolMount.install(
-                        toolkit,
-                        mcp.client().listTools(mcp.discoveryPhone()),
-                        mcp.client(),
-                        mcp.phones());
+                mcpTools.addAll(McpToolMount.install(toolkit, server));
             } catch (RuntimeException error) {
-                logger.warn("本地 MCP 工具发现失败，会话继续可用：{}", error.toString());
+                logger.warn("MCP 服务 {} 工具发现失败，会话继续可用：{}", server.id(), error.toString());
             }
         }
         boolean mcpToolsMounted = !mcpTools.isEmpty();
-        if (mcp != null && !mcpToolsMounted) {
-            logger.warn("本地 MCP 已配置，但没有挂上工具");
+        if (!servers.isEmpty() && !mcpToolsMounted) {
+            logger.warn("MCP 已配置，但没有挂上工具");
         } else if (mcpToolsMounted) {
             logger.info("本地 MCP 工具已挂载 {}", mcpTools.stream().map(McpBoundTool::getName).toList());
         }
@@ -323,7 +324,7 @@ public final class ChatSessions implements AutoCloseable {
         assertAccessible(checkedId);
         var summary = catalog.get(checkedId);
         if (summary == null || agentSessions == null)
-            throw new com.beyondzy.demo.auth.support.SessionNotFoundException("会话不存在");
+            throw new SessionNotFoundException("会话不存在");
         agentSessions.rename(Long.parseLong(activeUserId()), AGENT, checkedId, title.strip());
         return withCustomTitle(summary);
     }

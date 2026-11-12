@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.skill.SkillSchema;
 import io.agentscope.core.skill.AgentSkill;
 import io.agentscope.extensions.jdbc.dialect.AbstractJdbcDialect;
 import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;

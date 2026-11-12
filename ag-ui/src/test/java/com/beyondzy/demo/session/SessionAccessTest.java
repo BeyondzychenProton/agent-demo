@@ -1,11 +1,13 @@
 package com.beyondzy.demo.session;
 
+import com.beyondzy.demo.service.session.AgentSessionService;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.beyondzy.demo.auth.support.SessionNotFoundException;
+import com.beyondzy.demo.exception.session.SessionNotFoundException;
 import org.junit.jupiter.api.Test;
 
 class SessionAccessTest {

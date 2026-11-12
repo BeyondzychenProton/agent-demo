@@ -1,7 +1,7 @@
 package com.beyondzy.demo.session;
 
 import static org.junit.jupiter.api.Assertions.*;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.model.*;
 import io.agentscope.core.message.*;
@@ -231,10 +231,10 @@ class HitlIntegrationTest {
             pending(sessions);
             var controller = new com.beyondzy.demo.web.chat.ChatController(sessions);
             String id = card(sessions).hitl().requestId();
-            var approved = new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("approve", "");
+            var approved = new com.beyondzy.demo.web.chat.req.ApprovalAnswerRequest("approve", "");
             assertEquals(202, controller.answer("test", id, approved).block(Duration.ofSeconds(10)).getStatusCode().value());
             assertEquals(200, controller.answer("test", id, approved).block(Duration.ofSeconds(10)).getStatusCode().value());
-            var conflict = controller.answer("test", id, new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("reject", ""))
+            var conflict = controller.answer("test", id, new com.beyondzy.demo.web.chat.req.ApprovalAnswerRequest("reject", ""))
                     .block(Duration.ofSeconds(10));
             assertEquals(409, conflict.getStatusCode().value());
             assertTrue(conflict.getBody().contains("currentView"));
@@ -270,7 +270,7 @@ class HitlIntegrationTest {
             assertEquals(200, controller.cancel("test", c.turnId()).block(Duration.ofSeconds(10)).getStatusCode().value());
             assertEquals(200, controller.cancel("test", c.turnId()).block(Duration.ofSeconds(10)).getStatusCode().value());
             var stale = controller.answer("test", c.hitl().requestId(),
-                    new com.beyondzy.demo.web.chat.ChatController.ApprovalAnswer("approve", ""))
+                    new com.beyondzy.demo.web.chat.req.ApprovalAnswerRequest("approve", ""))
                     .block(Duration.ofSeconds(10));
             assertEquals(409, stale.getStatusCode().value());
             assertTrue(stale.getBody().contains("cancelled"));

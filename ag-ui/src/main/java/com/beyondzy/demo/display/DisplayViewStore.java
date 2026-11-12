@@ -1,7 +1,9 @@
 package com.beyondzy.demo.display;
 
+import com.beyondzy.demo.service.display.DisplayIndexService;
+
 import com.beyondzy.demo.domain.display.DisplayViewBean;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.contract.ThreadView;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.file.Path;
 import java.util.ArrayList;

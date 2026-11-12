@@ -1,11 +1,7 @@
 package com.beyondzy.demo.readmodel;
 
-import com.beyondzy.demo.domain.readmodel.ReadModelChangeRowBean;
-import com.beyondzy.demo.domain.readmodel.ReadModelContentBlockBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
-import com.beyondzy.demo.readmodel.CommitBatch;
-import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
-import com.beyondzy.demo.readmodel.ChatItems;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.support.DbTimes;
 import io.agentscope.core.util.JsonUtils;
 import java.nio.charset.StandardCharsets;

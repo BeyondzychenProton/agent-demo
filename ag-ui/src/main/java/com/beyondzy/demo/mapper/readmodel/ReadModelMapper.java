@@ -1,7 +1,7 @@
 package com.beyondzy.demo.mapper.readmodel;
 
-import com.beyondzy.demo.domain.readmodel.ReadModelChangeRowBean;
-import com.beyondzy.demo.domain.readmodel.ReadModelContentBlockBean;
+import com.beyondzy.demo.readmodel.ReadModelChangeRowBean;
+import com.beyondzy.demo.readmodel.ReadModelContentBlockBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelHeadBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelItemPayloadBean;
 import com.beyondzy.demo.domain.readmodel.ReadModelStaleItemBean;

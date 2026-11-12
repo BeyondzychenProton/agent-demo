@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** 启动时把 tools/list 的结果注册进 Toolkit。注册名把点号换成下划线，供 OpenAI 兼容接口使用。 */
+/** 把一家 MCP 的 tools/list 注册进 Toolkit。多家服务由装配方逐个调用。注册名把点号换成下划线，供 OpenAI 兼容接口使用。 */
 public final class McpToolMount {
 
     private static final Logger logger = LoggerFactory.getLogger(McpToolMount.class);
@@ -24,12 +24,17 @@ public final class McpToolMount {
 
     private McpToolMount() {}
 
-    public static List<McpBoundTool> install(
-            Toolkit toolkit,
-            List<McpToolDefinition> definitions,
-            McpToolCaller caller,
-            McpPhoneLookup phones) {
+    public static List<McpBoundTool> install(Toolkit toolkit, McpServer server) {
         if (toolkit == null) throw new IllegalArgumentException("toolkit 不能为空");
+        if (server == null) throw new IllegalArgumentException("MCP 服务不能为空");
+        return install(toolkit, server.id(), server.listTools(), server);
+    }
+
+    private static List<McpBoundTool> install(
+            Toolkit toolkit,
+            String serverId,
+            List<McpToolDefinition> definitions,
+            McpServer server) {
         List<McpToolDefinition> usable = new ArrayList<>();
         for (McpToolDefinition definition : definitions == null ? List.<McpToolDefinition>of() : definitions) {
             if (definition == null || definition.name() == null || definition.name().isBlank()) {
@@ -43,18 +48,18 @@ public final class McpToolMount {
             }
             usable.add(new McpToolDefinition(definition.name(), definition.description(), schema, definition.write()));
         }
-        List<String> names = assign(usable);
+        List<String> names = assign(serverId, usable);
         List<McpBoundTool> mounted = new ArrayList<>();
         for (int i = 0; i < usable.size(); i++) {
-            String registered = avoidCollision(toolkit, names.get(i), usable.get(i).name());
-            McpBoundTool tool = new McpBoundTool(caller, phones, registered, usable.get(i));
+            String registered = avoidCollision(toolkit, names.get(i), serverId, usable.get(i).name());
+            McpBoundTool tool = new McpBoundTool(server, registered, usable.get(i));
             toolkit.registerAgentTool(tool);
             mounted.add(tool);
         }
         return List.copyOf(mounted);
     }
 
-    static String avoidCollision(Toolkit toolkit, String registered, String sourceName) {
+    private static String avoidCollision(Toolkit toolkit, String registered, String serverId, String sourceName) {
         if (toolkit.getTool(registered) == null) return registered;
         String suffix = "_mcp";
         String stem = registered;
@@ -63,7 +68,7 @@ public final class McpToolMount {
         }
         String candidate = stem + suffix;
         if (toolkit.getTool(candidate) != null) {
-            candidate = stem + "_" + digest8("mcp://cms/" + sourceName);
+            candidate = stem + "_" + digest8(toolUri(serverId, sourceName));
             if (candidate.length() > MAX_LENGTH) {
                 candidate = candidate.substring(0, MAX_LENGTH);
             }
@@ -72,7 +77,12 @@ public final class McpToolMount {
         return candidate;
     }
 
-    private static List<String> assign(List<McpToolDefinition> tools) {
+    private static String toolUri(String serverId, String sourceName) {
+        String id = serverId == null || serverId.isBlank() ? "mcp" : serverId.trim();
+        return "mcp://" + id + "/" + sourceName;
+    }
+
+    private static List<String> assign(String serverId, List<McpToolDefinition> tools) {
         List<String> bases = new ArrayList<>();
         Map<String, Integer> counts = new HashMap<>();
         for (McpToolDefinition tool : tools) {
@@ -87,7 +97,7 @@ public final class McpToolMount {
             boolean plain = counts.get(base) == 1
                     && SAFE.matcher(base).matches()
                     && !used.contains(base);
-            String registered = plain ? base : disambiguate(base, "mcp://cms/" + tools.get(i).name(), used);
+            String registered = plain ? base : disambiguate(base, toolUri(serverId, tools.get(i).name()), used);
             used.add(registered);
             assigned.add(registered);
         }

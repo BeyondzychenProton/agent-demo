@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.beyondzy.demo.domain.user.UserBean;
-import com.beyondzy.demo.user.UserService;
+import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolResultBlock;

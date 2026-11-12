@@ -1,12 +1,10 @@
 package com.beyondzy.demo.readmodel;
 
-import com.beyondzy.demo.auth.support.UserContext;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.contract.UserContext;
+import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.hitl.HitlService;
-import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.session.ChatSessions;
-import com.beyondzy.demo.readmodel.ChatItems;
-import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import io.agentscope.core.session.SessionEvent;
 import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;

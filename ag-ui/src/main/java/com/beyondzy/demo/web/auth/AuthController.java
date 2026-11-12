@@ -1,10 +1,11 @@
 package com.beyondzy.demo.web.auth;
 
-import com.beyondzy.demo.auth.cookie.AuthCookieSupport;
-import com.beyondzy.demo.auth.service.AuthService;
-import com.beyondzy.demo.auth.service.AuthSessionService;
-import com.beyondzy.demo.auth.support.CurrentUser;
-import java.util.Map;
+import com.beyondzy.demo.handler.admin.AuthCookieSupport;
+import com.beyondzy.demo.handler.admin.CurrentUser;
+import com.beyondzy.demo.service.auth.AuthService;
+import com.beyondzy.demo.service.auth.AuthSessionService;
+import com.beyondzy.demo.web.auth.req.LoginRequest;
+import com.beyondzy.demo.web.auth.res.AuthUserResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,18 +32,17 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Mono<ResponseEntity<Map<String, Object>>> login(
-            @RequestBody Map<String, String> body, ServerWebExchange exchange) {
-        return Mono.fromCallable(() -> auth.login(body.get("phone"), body.get("password")))
+    public Mono<ResponseEntity<AuthUserResponse>> login(
+            @RequestBody LoginRequest body, ServerWebExchange exchange) {
+        return Mono.fromCallable(() -> auth.login(body.phone(), body.password()))
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(result -> {
                     cookies.write(exchange.getResponse(), result.session().rawToken(),
                             sessions.remainingMaxAgeSeconds(result.session().row()));
-                    Map<String, Object> payload = auth.toUserBody(
+                    return ResponseEntity.ok(AuthUserResponse.of(
                             result.user(),
                             result.session().row().getExpiresAt(),
-                            result.session().rawToken());
-                    return ResponseEntity.ok(payload);
+                            result.session().rawToken()));
                 });
     }
 
@@ -60,11 +60,11 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public Mono<Map<String, Object>> me() {
+    public Mono<AuthUserResponse> me() {
         return CurrentUser.require()
                 .flatMap(principal -> Mono.fromCallable(() -> {
                     var user = auth.requireUser(principal.userId());
-                    return auth.toUserBody(user, null, null);
+                    return AuthUserResponse.of(user, null, null);
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 

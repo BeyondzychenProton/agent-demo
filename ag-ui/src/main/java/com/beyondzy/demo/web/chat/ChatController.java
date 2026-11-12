@@ -1,14 +1,15 @@
 package com.beyondzy.demo.web.chat;
 
 import io.agentscope.core.util.JsonUtils;
-import com.beyondzy.demo.auth.support.AuthRequests;
-import com.beyondzy.demo.auth.support.CurrentUser;
-import com.beyondzy.demo.auth.support.SessionNotFoundException;
-import com.beyondzy.demo.auth.support.UserContext;
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.handler.admin.AuthRequests;
+import com.beyondzy.demo.handler.admin.CurrentUser;
+import com.beyondzy.demo.exception.session.SessionNotFoundException;
+import com.beyondzy.demo.contract.UserContext;
+import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.readmodel.ChatHistory;
 import com.beyondzy.demo.readmodel.IncrementalEventProjection;
+import com.beyondzy.demo.web.chat.req.ApprovalAnswerRequest;
 
 import java.time.Duration;
 import java.util.List;
@@ -187,9 +188,6 @@ public class ChatController {
         });
     }
 
-    /** 浏览器只表达决定和说明；工具名及参数从服务端原始请求恢复。 */
-    public record ApprovalAnswer(String decision, String reason) {}
-
     /**
      * 审批提交入口，所有阻塞日志操作切至弹性线程池。
      *
@@ -198,7 +196,7 @@ public class ChatController {
      */
     @PostMapping("/threads/{id}/interactions/{requestId}/answer")
     public Mono<ResponseEntity<String>> answer(@PathVariable String id,
-            @PathVariable String requestId, @RequestBody ApprovalAnswer body) {
+            @PathVariable String requestId, @RequestBody ApprovalAnswerRequest body) {
         return AuthRequests.call(() -> {
             var receipt = sessions.answer(id, requestId, body.decision(), body.reason());
             return ResponseEntity.status(receipt.created() ? 202 : 200)

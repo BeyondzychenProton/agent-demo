@@ -4,7 +4,7 @@ import com.beyondzy.demo.session.ChatSessions;
 import com.beyondzy.demo.web.chat.ChatController;
 import com.beyondzy.demo.web.readmodel.ReadModelController;
 import com.beyondzy.demo.web.agui.AguiController;
-import com.beyondzy.demo.agui.AguiService;
+import com.beyondzy.demo.agui.impl.AguiServiceImpl;
 import io.agentscope.core.message.*;
 import io.agentscope.core.model.*;
 import io.agentscope.core.session.SessionEvent;
@@ -21,7 +21,7 @@ import reactor.core.publisher.Flux;
 public final class ReadModelTestServer {
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration
-    @Import({ChatController.class, ReadModelController.class, AguiController.class, AguiService.class})
+    @Import({ChatController.class, ReadModelController.class, AguiController.class, AguiServiceImpl.class})
     static class Config {
         @Bean(destroyMethod = "close") ChatSessions sessions() throws Exception {
             Path workspace = System.getProperty("demo.test.workspace") == null ? Files.createTempDirectory("展示联调-")

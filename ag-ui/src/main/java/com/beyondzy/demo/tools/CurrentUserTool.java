@@ -1,7 +1,7 @@
 package com.beyondzy.demo.tools;
 
 import com.beyondzy.demo.domain.user.UserBean;
-import com.beyondzy.demo.user.UserService;
+import com.beyondzy.demo.service.user.UserService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;

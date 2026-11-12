@@ -3,7 +3,7 @@ package com.beyondzy.demo.domain.auth;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.beyondzy.demo.domain.user.BaseAuditBean;
+import com.beyondzy.demo.domain.BaseAuditBean;
 import java.time.LocalDateTime;
 
 /** 登录会话持久化模型。对应表：auth_session。 */

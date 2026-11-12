@@ -11,42 +11,33 @@ import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 /**
- * 一个本地 MCP 工具。登录手机号在执行时按 RuntimeContext 的用户 id 查询，
- * 模型 arguments 里的手机号只作为业务参数原样转发。
+ * 挂到会话上的一个 MCP 工具。
+ * 只把当前登录用户 id 交给 {@link McpServer}，身份怎么换成下游凭证由具体服务决定。
+ * 模型 arguments 里的手机号等字段原样转发，不当作调用者身份。
  */
 public final class McpBoundTool extends ToolBase {
 
-    private static final Logger logger = LoggerFactory.getLogger(McpBoundTool.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String HINT =
             "登录身份只来自当前账号。多名候选人先确认；即使只有一人也要请用户确认。"
                     + "预约和取消必须先得到明确同意。失败不要编造成功，也不要换 requestId 自动重试。";
 
-    private final McpToolCaller caller;
-    private final McpPhoneLookup phones;
+    private final McpServer server;
     private final String sourceName;
     private final boolean write;
 
-    public McpBoundTool(
-            McpToolCaller caller,
-            McpPhoneLookup phones,
-            String registeredName,
-            McpToolDefinition definition) {
+    public McpBoundTool(McpServer server, String registeredName, McpToolDefinition definition) {
         super(ToolBase.builder()
                 .name(registeredName)
                 .description(describe(definition))
                 .inputSchema(copySchema(definition.inputSchema()))
                 .readOnly(!definition.write())
                 .concurrencySafe(!definition.write()));
-        if (caller == null) throw new IllegalArgumentException("MCP 调用器不能为空");
-        if (phones == null) throw new IllegalArgumentException("手机号查询不能为空");
-        this.caller = caller;
-        this.phones = phones;
+        if (server == null) throw new IllegalArgumentException("MCP 服务不能为空");
+        this.server = server;
         this.sourceName = definition.name();
         this.write = definition.write();
     }
@@ -70,20 +61,10 @@ public final class McpBoundTool extends ToolBase {
     public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
         RuntimeContext runtime = param == null ? null : param.getRuntimeContext();
         String userId = runtime == null ? null : runtime.getUserId();
-        String phone;
-        try {
-            phone = userId == null || userId.isBlank() ? null : phones.phoneOf(userId);
-        } catch (RuntimeException error) {
-            logger.warn("查询登录用户手机号失败，工具 {}", getName());
-            return Mono.just(errorResult("UNAUTHENTICATED", "无法确认当前登录用户手机号"));
-        }
-        if (phone == null || phone.isBlank()) {
-            return Mono.just(errorResult("UNAUTHENTICATED", "当前登录用户没有可用手机号"));
-        }
         Map<String, Object> arguments = param == null || param.getInput() == null
                 ? Map.of()
                 : param.getInput();
-        McpCallResult result = caller.callTool(sourceName, arguments, phone.strip());
+        McpCallResult result = server.callTool(sourceName, arguments, userId);
         return Mono.just(toResult(result));
     }
 
@@ -100,10 +81,6 @@ public final class McpBoundTool extends ToolBase {
         payload.put("result", result.body());
         payload.put("notice", notice(false));
         return ToolResultBlock.error(write(payload));
-    }
-
-    private ToolResultBlock errorResult(String code, String message) {
-        return toResult(McpCallResult.failure(code, message, null));
     }
 
     private String notice(boolean success) {

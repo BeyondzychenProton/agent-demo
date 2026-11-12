@@ -1,9 +1,6 @@
 package com.beyondzy.demo.readmodel;
 
 import com.beyondzy.demo.session.ChatSessions;
-import com.beyondzy.demo.readmodel.ChatItems;
-import com.beyondzy.demo.readmodel.ThreadView;
-import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import io.agentscope.core.message.*;
 import io.agentscope.core.model.*;
 import io.agentscope.core.session.SessionEvent;

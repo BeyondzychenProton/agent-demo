@@ -1,6 +1,6 @@
 package com.beyondzy.demo.web.agui;
 
-import com.beyondzy.demo.agui.AguiService;
+import com.beyondzy.demo.agui.impl.AguiServiceImpl;
 import static org.junit.jupiter.api.Assertions.*;
 import com.beyondzy.demo.session.ChatSessions;
 import io.agentscope.core.message.*;
@@ -36,7 +36,7 @@ class AguiQueuedRunTest {
             // 占住执行写入资格，确定性地让 submit 返回 queued、runId=null。
             var writer = log.acquire("测试暂缓调度", Duration.ofSeconds(30));
             try {
-                var first = new AguiService(sessions).run("chat", request("queued", "client-run"))
+                var first = new AguiServiceImpl(sessions).run("chat", request("queued", "client-run"))
                         .next().block(Duration.ofSeconds(5));
                 assertNotNull(first);
                 assertTrue(first.data().contains("RUN_STARTED"));
@@ -60,7 +60,7 @@ class AguiQueuedRunTest {
             var received = new java.util.concurrent.CopyOnWriteArrayList<String>();
             java.util.concurrent.CompletableFuture<List<org.springframework.http.codec.ServerSentEvent<String>>> future;
             try {
-                future = new AguiService(sessions).run("chat", request("queued", "client-run"))
+                future = new AguiServiceImpl(sessions).run("chat", request("queued", "client-run"))
                         .doOnNext(event -> received.add(event.data())).collectList().toFuture();
                 waitFor(() -> !received.isEmpty());
                 assertEquals("queued", sessions.latestTask("queued").status());
@@ -80,10 +80,10 @@ class AguiQueuedRunTest {
             var writer = log.acquire("测试重连前暂缓调度", Duration.ofSeconds(30));
             java.util.concurrent.CompletableFuture<List<org.springframework.http.codec.ServerSentEvent<String>>> future;
             try {
-                new AguiService(sessions).run("chat", request("reconnect", "original-run"))
+                new AguiServiceImpl(sessions).run("chat", request("reconnect", "original-run"))
                         .next().block(Duration.ofSeconds(5));
                 // 新适配器没有旧进程内映射，也必须能从持久命令找回排队任务。
-                var reconnected = new AguiService(sessions);
+                var reconnected = new AguiServiceImpl(sessions);
                 future = reconnected.connect("reconnect", "reconnect-run").collectList().toFuture();
                 assertNull(sessions.latestTask("reconnect").runId());
             } finally { log.release(writer); }
@@ -95,7 +95,7 @@ class AguiQueuedRunTest {
 
     @Test void 连续快速任务各自收到一次回复和结束帧() {
         try (var sessions = new ChatSessions(workspace, new TextModel())) {
-            var service = new AguiService(sessions);
+            var service = new AguiServiceImpl(sessions);
             for (int i = 0; i < 3; i++) {
                 String clientRun = "fast-run-" + i;
                 var events = service.run("chat", request("fast", clientRun))
@@ -121,7 +121,7 @@ class AguiQueuedRunTest {
             }
         };
         try (var sessions = new ChatSessions(workspace, model)) {
-            var service = new AguiService(sessions);
+            var service = new AguiServiceImpl(sessions);
             var suspended = service.run("chat", request("approval", "first-run"))
                     .collectList().block(Duration.ofSeconds(15));
             assertTrue(suspended.getLast().data().contains("RUN_FINISHED"));
@@ -131,7 +131,7 @@ class AguiQueuedRunTest {
             assertEquals(1, pending.size());
             String requestId = (String) pending.getFirst().data().get("requestId");
             sessions.answer("approval", requestId, "approve", "");
-            var resumed = new AguiService(sessions).connect("approval", "approval-connect")
+            var resumed = new AguiServiceImpl(sessions).connect("approval", "approval-connect")
                     .collectList().block(Duration.ofSeconds(15));
             assertNotNull(resumed);
             assertTrue(resumed.getLast().data().contains("RUN_FINISHED"));

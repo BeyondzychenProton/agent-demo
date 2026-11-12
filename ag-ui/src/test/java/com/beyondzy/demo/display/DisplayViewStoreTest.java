@@ -1,6 +1,6 @@
 package com.beyondzy.demo.display;
 
-import com.beyondzy.demo.readmodel.ThreadView;
+import com.beyondzy.demo.contract.ThreadView;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;

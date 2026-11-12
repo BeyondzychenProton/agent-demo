@@ -1,8 +1,8 @@
 package com.beyondzy.demo.web.agui;
 
 import com.beyondzy.demo.agui.AguiService;
-import com.beyondzy.demo.auth.support.AuthRequests;
-import com.beyondzy.demo.auth.support.CurrentUser;
+import com.beyondzy.demo.handler.admin.AuthRequests;
+import com.beyondzy.demo.handler.admin.CurrentUser;
 import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;

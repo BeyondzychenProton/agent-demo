@@ -1,9 +1,9 @@
 package com.beyondzy.demo.web.readmodel;
 
-import com.beyondzy.demo.auth.support.AuthRequests;
-import com.beyondzy.demo.auth.support.CurrentUser;
-import com.beyondzy.demo.auth.support.SessionNotFoundException;
-import com.beyondzy.demo.auth.support.UserContext;
+import com.beyondzy.demo.handler.admin.AuthRequests;
+import com.beyondzy.demo.handler.admin.CurrentUser;
+import com.beyondzy.demo.exception.session.SessionNotFoundException;
+import com.beyondzy.demo.contract.UserContext;
 import com.beyondzy.demo.readmodel.ProjectionService;
 import com.beyondzy.demo.readmodel.ReadModelStore;
 import com.beyondzy.demo.session.ChatSessions;

@@ -7,12 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
-import com.beyondzy.demo.config.SkillJdbc;
-import com.beyondzy.demo.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.mcp.McpBoundTool;
 import com.beyondzy.demo.mcp.McpCallResult;
+import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolDefinition;
-import com.beyondzy.demo.user.UserService;
+import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
@@ -44,10 +45,10 @@ class ChatSessionsSkillWiringTest {
 
     @Test
     void meetingWritesRequireApprovalAndReadsAreAllowed() throws Exception {
-        McpBoundTool read = new McpBoundTool((name, args, phone) -> McpCallResult.success(Map.of()),
-                id -> "13800000000", "room_search", new McpToolDefinition("room.search", "查询", Map.of("type", "object"), false));
-        McpBoundTool write = new McpBoundTool((name, args, phone) -> McpCallResult.success(Map.of()),
-                id -> "13800000000", "room_reserve", new McpToolDefinition("room.reserve", "预约", Map.of("type", "object"), true));
+        McpBoundTool read = new McpBoundTool(server("read"), "room_search",
+                new McpToolDefinition("room.search", "查询", Map.of("type", "object"), false));
+        McpBoundTool write = new McpBoundTool(server("write"), "room_reserve",
+                new McpToolDefinition("room.reserve", "预约", Map.of("type", "object"), true));
         var method = ChatSessions.class.getDeclaredMethod("approvalPermissions", List.class);
         method.setAccessible(true);
         var rules = (PermissionContextState) method.invoke(null, List.of(read, write));
@@ -74,6 +75,16 @@ class ChatSessionsSkillWiringTest {
             assertTrue(agent.getSkillRepositories().stream()
                     .anyMatch(item -> item instanceof JdbcAgentSkillRepository));
         }
+    }
+
+    private static McpServer server(String id) {
+        return new McpServer() {
+            @Override public String id() { return id; }
+            @Override public List<McpToolDefinition> listTools() { return List.of(); }
+            @Override public McpCallResult callTool(String toolName, Map<String, Object> arguments, String userId) {
+                return McpCallResult.success(Map.of());
+            }
+        };
     }
 
     private ChatSessions open(JdbcAgentSkillRepository repo) {

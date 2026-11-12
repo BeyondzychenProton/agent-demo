@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.beyondzy.demo.config.SkillJdbc;
+import com.beyondzy.demo.config.skill.SkillJdbc;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;

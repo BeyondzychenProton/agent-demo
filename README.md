@@ -29,7 +29,7 @@
 
 1. `ag-ui/src/main/java/com/beyondzy/demo/session/ChatSessions.java`：看 `approvalPermissions` 确定审批触发规则，接着看 `answer`、`view` 与 `interactionRevision` 的接入关系。
 2. `ag-ui/src/main/java/com/beyondzy/demo/hitl/HitlService.java`：沿 `answer → interactions → project → decorate` 理解决定接收、双日志恢复和卡片组装；`cancel` 是等待期间取消的独立分支。
-3. `ag-ui/src/main/java/com/beyondzy/demo/web/ChatController.java`：查看审批与取消接口、冲突响应，以及不复用执行 cursor 的变化通知。
+3. `ag-ui/src/main/java/com/beyondzy/demo/web/chat/ChatController.java`：查看审批与取消接口、冲突响应，以及不复用执行 cursor 的变化通知。
 4. `ag-ui/src/main/java/com/beyondzy/demo/contract/ThreadView.java`：查看 `HitlBlock` 字段注释，区分已接收的决定、框架处理状态与后续执行。
 5. `ag-ui/src/test/java/com/beyondzy/demo/session/HitlIntegrationTest.java`：使用不联网的脚本模型，驱动真实 Harness、SQLite 和文件工具；恢复点与并发场景在测试中明确构造。
 
@@ -171,30 +171,18 @@ curl.exe -s http://127.0.0.1:8087/api/sessions/demo1
 
 ```text
 com.beyondzy.demo
-├─ ChatApplication.java              // 启动入口
-├─ config/                           // 模型 + ChatSessions 装配
-├─ web/                              // HTTP/SSE 接入
-│  ├─ ChatController.java            // /api
-│  └─ agui/                          // /agui/run：Controller + Service
-├─ session/                          // M-Runtime / M1 / M2
-│  ├─ ChatSessions.java
-│  └─ ThreadCatalog.java
-├─ snapshot/                         // M4：快照、卡片聚合、增量投影
-│  ├─ ChatHistory.java
-│  ├─ ChatItems.java
-│  ├─ ThreadViewAssembler.java
-│  └─ IncrementalEventProjection.java
-├─ projection/                       // M3：SessionEvent → AG-UI 帧
-│  └─ AguiEventProjection.java
-├─ contract/                         // 前端契约 DTO
-│  └─ ThreadView.java
-├─ tools/                            // 时钟工具与历史工具卡片元数据
-│  ├─ ToolCatalog.java
-│  ├─ ClockTools.java
-│  └─ LineDiff.java
-└─ support/                          // 跨模块纯工具
-   ├─ Payloads.java
-   └─ ContentValues.java
+├─ ChatApplication.java
+├─ config/                 // chat、security、mybatis、skill、auth 分目录装配
+├─ contract/               // ThreadView、UserContext、AuthPrincipal
+├─ domain/                 // BaseAuditBean + 各 feature 表实体
+├─ enums/ mapper/ service/ exception/ handler/ web/
+│                          // 按技术层拆包，feature 只做子包
+├─ session/                // ChatSessions、ThreadCatalog、MySqlSessionLogStore
+├─ readmodel/              // 投影、ReadModelStore、JOIN 行
+├─ display/                // DisplayViewStore
+├─ agui/                   // AguiService + AguiEventProjection
+├─ mcp/                    // McpServer 通用挂载；mantianxing 是当前实现
+├─ hitl/ tools/ support/
 ```
 
 已实现：`hitl/`（M6 工具审批）。
@@ -202,17 +190,17 @@ com.beyondzy.demo
 | 类 | 对应大纲模块 | 职责 |
 |---|---|---|
 | `ChatApplication` | 启动入口 | 只保留 `@SpringBootApplication` 与 `main` |
-| `config/ChatConfiguration` | M-Runtime 装配 | OpenAI 兼容模型 + SessionLogStore 接线 |
+| `config/chat/ChatConfiguration` | M-Runtime 装配 | OpenAI 兼容模型、SessionLogStore 与 MCP 服务注册 |
 | `session/ChatSessions` | M-Runtime / M2 薄封装 | 会话列表、提交、readAfter 增量读取、启动恢复 |
 | `session/ThreadCatalog` | M1 ThreadService | 会话列表读索引、分页、展示快照 |
-| `snapshot/ChatHistory` | M4 HistorySnapshot | scan 已提交前缀 → transcript → cursor 拼装 |
-| `snapshot/ChatItems` | M4 聚合（6.1.6 / 5.4.6） | 半段文本重建、参数分片合并、卡片终态收口 |
-| `web/ChatController` | M5 StreamChannel / 接入 | 快照端点、SSE committed 轮询 + Last-Event-ID + 心跳 |
-| `web/agui/AguiService` | M5 接入（AG-UI 薄适配） | 线程现算、connect 快照、run 流式；事件翻译委托给 `AguiEventProjection` |
+| `readmodel/ChatHistory` | M4 HistorySnapshot | scan 已提交前缀 → transcript → cursor 拼装 |
+| `readmodel/ChatItems` | M4 聚合（6.1.6 / 5.4.6） | 半段文本重建、参数分片合并、卡片终态收口 |
+| `web/chat/ChatController` | M5 StreamChannel / 接入 | 快照端点、SSE committed 轮询 + Last-Event-ID + 心跳 |
+| `agui/AguiService` | M5 接入（AG-UI 薄适配） | 线程现算、connect 快照、run 流式；事件翻译委托给 `AguiEventProjection` |
 | `web/agui/AguiController` | M5 接入（协议面路由） | `/agui/run` 下 info/threads/connect/run 路由，不动主干 |
-| `projection/AguiEventProjection` | M3 EventProjection | SessionEvent → AG-UI 帧：文本、工具参数分片、进度 CUSTOM、run/end 闭合 |
-| `snapshot/ThreadViewAssembler` | M4 HistorySnapshot | ChatItems → 6.1.8 `SnapshotResponse`（ToolCardViewModel / MessageItem） |
-| `snapshot/IncrementalEventProjection` | M4 / M5 增量 | committed 事件 → `IncrementalEvent`（card-args/status/result、message-delta、run-finished） |
+| `agui/AguiEventProjection` | M3 EventProjection | SessionEvent → AG-UI 帧：文本、工具参数分片、进度 CUSTOM、run/end 闭合 |
+| `readmodel/ThreadViewAssembler` | M4 HistorySnapshot | ChatItems → 6.1.8 `SnapshotResponse`（ToolCardViewModel / MessageItem） |
+| `readmodel/IncrementalEventProjection` | M4 / M5 增量 | committed 事件 → `IncrementalEvent`（card-args/status/result、message-delta、run-finished） |
 | `contract/ThreadView` | 6.1.7 / 6.1.8 契约 | 快照 / 增量 / 卡片 ViewModel 的前端契约 |
 | `support/Payloads` + `support/ContentValues` | 投影辅助 | 统一解码 payload、取文本、解析 JSON、归一卡片状态 |
 | `tools/*` | M7 ToolRegistry | 三个演示工具 + `ToolCatalog` 折叠标题/定制卡片标记 + 行级 diff |
