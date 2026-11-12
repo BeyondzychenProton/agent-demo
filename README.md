@@ -48,7 +48,6 @@
 | `chat.endpoint-path` | 补全路径 `/chat/completions`，与 baseUrl 拼成 `/v1/chat/completions` |
 | `chat.model` | 模型 API ID `deepseek-v4.1-flash-1017`（用 API ID，不用显示名/空格写法） |
 | `chat.api-key` | 私有 key，**只存本地本文件，勿提交版本库、勿打印日志**；也可用环境变量覆盖 |
-| `chat.workspace` | SessionLog 落盘根目录，默认 `~/.agentscope/haizhuo-demo`，**重启恢复的权威来源** |
 | `server.port` | 默认 8087，仅监听 127.0.0.1 |
 | `mcp.endpoint` | 本地直连 MCP 地址，默认 `https://cms-test-k8s.shsets.com/stage-api/mcp` |
 | `mcp.app-key` / `mcp.secret` | 测试环境 App Key 与 HMAC Secret，环境变量 `MCP_APP_KEY`、`MCP_SECRET` |

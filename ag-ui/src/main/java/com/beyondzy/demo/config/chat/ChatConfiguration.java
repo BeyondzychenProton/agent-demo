@@ -17,7 +17,6 @@ import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +29,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 运行时装配：模型客户端 + 会话管理器。
  *
- * <p>SessionLog 由 MySQL 会话存储实现持久化；工作区目录仍用于本地工具文件。
+ * <p>SessionLog 由 MySQL 会话存储实现持久化。
  * 模型走 DashScope 的 OpenAI 兼容端点，由 baseUrl + endpointPath 拼成 /chat/completions。
  */
 @Configuration(proxyBeanMethods = false)
@@ -54,7 +53,6 @@ public class ChatConfiguration {
             DisplayIndexService displayIndex,
             ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService,
-            @Value("${chat.workspace}") String workspace,
             @Value("${chat.base-url}") String baseUrl,
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
@@ -78,8 +76,6 @@ public class ChatConfiguration {
                         .modelName(modelName)
                         .stream(true) // 开启流式，产生 committed 的 model/chunk 事件供增量重放
                         .build();
-        // 创建工作区目录（本地工具文件根目录）
-        Path workspacePath = Files.createDirectories(Path.of(workspace));
         List<McpServer> mcpServers = new ArrayList<>();
         MantianxingMcpClient mantianxing = MantianxingMcpClient.ifConfigured(
                 mcpEndpoint, mcpAppKey, mcpSecret, mcpDiscoveryPhone, userId -> phoneOf(users, userId));
@@ -92,7 +88,7 @@ public class ChatConfiguration {
             mcpServers.add(mantianxing);
         }
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
-        return new ChatSessions(workspacePath, model,
+        return new ChatSessions(Path.of("."), model,
                 mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers,
                 skillRepository, users);
     }
