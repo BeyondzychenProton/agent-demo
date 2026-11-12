@@ -253,11 +253,9 @@ public final class ChatSessions implements AutoCloseable {
 
     private HarnessAgent buildHarness(PreparedGovernanceAssembly assembly) {
         Toolkit toolkit;
-        String skillsSection = "";
         boolean governanceToolsMounted = false;
         if (assembly != null) {
             toolkit = assembly.toolkit();
-            skillsSection = assembly.skillsSection() == null ? "" : assembly.skillsSection();
             governanceToolsMounted = assembly.mount() != null
                     && assembly.mount().snapshotId() != null
                     && !assembly.mount().registeredNames().isEmpty();
@@ -267,11 +265,11 @@ public final class ChatSessions implements AutoCloseable {
             toolkit.registerTool(new DocSearchTools());
             toolkit.registerTool(new NoteTools(workspace));
         }
-        return HarnessAgent.builder()
+        var builder = HarnessAgent.builder()
                 .name("Session Chat")
                 .agentId(AGENT)
                 .model(model)
-                .sysPrompt(systemPrompt(governanceToolsMounted, skillsSection))
+                .sysPrompt(systemPrompt(governanceToolsMounted))
                 .workspace(workspace)
                 .sessionLogStore(store)
                 .toolkit(toolkit)
@@ -281,15 +279,17 @@ public final class ChatSessions implements AutoCloseable {
                 .disableWebTools()
                 .disableSubagents()
                 .disableDynamicSubagents()
-                .disableDynamicSkills()
                 .disableDefaultWorkspaceSkills()
                 .disableMemoryTools()
                 .disableMemoryHooks()
                 .disableToolsConfig()
                 .disableWorkspaceContext()
                 .disableAtPathExpansion()
-                .maxIters(8)
-                .build();
+                .maxIters(8);
+        if (assembly != null && assembly.skillRepository() != null) {
+            builder.skillRepository(assembly.skillRepository());
+        }
+        return builder.build();
     }
 
     /**
@@ -359,6 +359,8 @@ public final class ChatSessions implements AutoCloseable {
                         "lookup_order", null, PermissionBehavior.ALLOW, "平台查询策略"))
                 .addAllowRule("search_docs", new PermissionRule(
                         "search_docs", null, PermissionBehavior.ALLOW, "平台查询策略"))
+                .addAllowRule("load_skill_through_path", new PermissionRule(
+                        "load_skill_through_path", null, PermissionBehavior.ALLOW, "治理 Skill 只读资源"))
                 .build();
     }
 

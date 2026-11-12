@@ -26,7 +26,10 @@ public final class GovernanceAssemblySupport {
         toolkit.registerTool(new OrderTools());
         toolkit.registerTool(new DocSearchTools());
         toolkit.registerTool(new NoteTools(workspace.toAbsolutePath()));
-        return prepare(toolkit, gateway, snapshot, etag, true);
+        GovernanceToolMount mount = new GovernanceToolMount(toolkit, gateway);
+        mount.install(snapshot);
+        var repository = new GovernanceSkillRepository(gateway, snapshot, mount.registeredNameByUri());
+        return new PreparedGovernanceAssembly(snapshot, toolkit, mount, "", etag, repository);
     }
 
     public static PreparedGovernanceAssembly prepare(

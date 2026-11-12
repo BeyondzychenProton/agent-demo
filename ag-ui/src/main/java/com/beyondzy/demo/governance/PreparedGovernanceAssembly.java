@@ -8,7 +8,13 @@ public record PreparedGovernanceAssembly(
         Toolkit toolkit,
         GovernanceToolMount mount,
         String skillsSection,
-        String etag) {
+        String etag,
+        GovernanceSkillRepository skillRepository) {
+
+    public PreparedGovernanceAssembly(GovernanceSnapshot snapshot, Toolkit toolkit,
+            GovernanceToolMount mount, String skillsSection, String etag) {
+        this(snapshot, toolkit, mount, skillsSection, etag, null);
+    }
 
     public String snapshotId() {
         return snapshot.snapshotId();
