@@ -8,4 +8,4 @@
 
     DROP TABLE IF EXISTS thread_catalog;
 
-用户表 app_user 由 V2 维护；登录会话表 auth_session 由 V5 维护（应用启动也会 `CREATE TABLE IF NOT EXISTS`）。浏览器登录后通过 SecurityContext 的 userId 绑定 agent_session / 读模型命名空间；种子用户默认手机号见 `chat.auth.seed-phone`。展示兼容接口继续使用 display_*，当前页面继续使用 rm_*。
+用户表 app_user 由 V2 维护；登录会话表 auth_session 由 V5 维护（应用启动也会 `CREATE TABLE IF NOT EXISTS`）。浏览器登录后通过 SecurityContext 的 userId 绑定 agent_session / 读模型命名空间。展示兼容接口继续使用 display_*，当前页面继续使用 rm_*。

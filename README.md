@@ -79,7 +79,7 @@ mvn -DskipTests package
 java -jar target\ag-ui-1.0-SNAPSHOT.jar
 ```
 
-开发期也可 `mvn spring-boot:run`。启动前按 .env.example 设置数据库密码、模型 API Key、Cookie 密钥及种子用户密码。后端监听 `127.0.0.1:8087`。
+开发期也可 `mvn spring-boot:run`。后端直接读取 application.properties，监听 8087。登录使用数据库已有用户。
 
 ## 3.1 前端启动（CopilotKit 最小聊天窗）
 

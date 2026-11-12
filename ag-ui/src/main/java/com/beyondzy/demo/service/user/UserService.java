@@ -15,7 +15,4 @@ public interface UserService {
 
     /** 校验明文密码是否匹配用户哈希。 */
     boolean matchesPassword(UserBean user, String rawPassword);
-
-    /** 确保种子用户存在（优先 id=1）。 */
-    UserBean ensureSeedUser(long preferredId, String name, String phone, String rawPassword);
 }
