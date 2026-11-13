@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS app_user (
     name VARCHAR(100) NOT NULL COMMENT '用户姓名',
     phone VARCHAR(24) NOT NULL COMMENT '用户手机号',
     password_hash VARCHAR(100) NOT NULL COMMENT 'BCrypt 密码哈希，不存储明文',
-    role VARCHAR(32) NOT NULL DEFAULT 'user' COMMENT '角色：admin / user',
     is_deleted TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '软删除标记：0 未删 / 1 已删',
     gmt_create DATETIME(3) NOT NULL COMMENT '创建时间',
     gmt_modified DATETIME(3) NOT NULL COMMENT '更新时间',

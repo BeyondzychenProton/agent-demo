@@ -8,7 +8,6 @@ public record SkillPage(List<SkillSummary> items, long total, int page, int size
     public record SkillSummary(
             String name,
             String description,
-            long ownerUserId,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
             int resourceCount) {}

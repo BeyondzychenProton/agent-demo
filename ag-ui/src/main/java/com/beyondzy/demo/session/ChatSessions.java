@@ -21,10 +21,7 @@ import io.agentscope.core.session.SessionInbox;
 import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
-import io.agentscope.harness.agent.IsolationScope;
-import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.session.AgentSession;
-import com.beyondzy.demo.workspace.UserWorkspaceService;
 import io.agentscope.core.session.SessionLogStore;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
@@ -64,8 +61,6 @@ public final class ChatSessions implements AutoCloseable {
     private final ThreadCatalog catalog;
     private final DisplayViewStore displayViews;
     private final ProjectionService projection;
-    /** 每个用户在磁盘上的独立工作空间（<root>/<userId>/）。 */
-    private final UserWorkspaceService workspaces;
 
     public ProjectionService projection() { return projection; }
     private final java.util.concurrent.atomic.LongAdder viewIndexHits = new java.util.concurrent.atomic.LongAdder();
@@ -162,12 +157,6 @@ public final class ChatSessions implements AutoCloseable {
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
         store = sessionLogStore;
-        this.workspaces = new UserWorkspaceService(workspace);
-        try {
-            java.nio.file.Files.createDirectories(workspaces.root());
-        } catch (java.io.IOException error) {
-            throw new IllegalStateException("无法创建工作区根目录: " + workspaces.root(), error);
-        }
         // 时钟用于将会议中的相对日期转换为绝对时间。
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new ClockTools());
@@ -195,11 +184,6 @@ public final class ChatSessions implements AutoCloseable {
                         // 提示词只在真正挂上对应工具时启用，避免“有文案无工具”
                         .sysPrompt(systemPrompt(mcpToolsMounted))
                         .workspace(workspace.toAbsolutePath())
-                        // 多用户隔离：同一个 Agent 实例，按 RuntimeContext.userId 落到 <workspace>/<userId>/
-                        // 当前文件/shell 工具都关闭，这里先把隔离骨架立起来（目录即隔离边界）。
-                        .filesystem(new LocalFilesystemSpec()
-                                .isolationScope(IsolationScope.USER)
-                                .project(Path.of(System.getProperty("user.dir")).toAbsolutePath()))
                         .sessionLogStore(store)
                         .toolkit(toolkit)
                         // 查询允许直接执行，写入必须 ASK；真正授权来自确认结果，不能以聊天中的“批准”代替。
@@ -295,10 +279,7 @@ public final class ChatSessions implements AutoCloseable {
 
     /** 构造框架运行上下文：userId 取当前请求用户，sessionId 原样使用会话 id。 */
     private RuntimeContext context(String session) {
-        String userId = activeUserId();
-        // 首次访问某用户时建出 <workspace>/<userId>/，保证磁盘上能直接看到隔离边界
-        workspaces.ensure(userId);
-        return RuntimeContext.builder().userId(userId).sessionId(id(session)).build();
+        return RuntimeContext.builder().userId(activeUserId()).sessionId(id(session)).build();
     }
 
     /**

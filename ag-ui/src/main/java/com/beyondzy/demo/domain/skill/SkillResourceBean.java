@@ -1,20 +1,16 @@
 package com.beyondzy.demo.domain.skill;
 
-import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
 /**
  * 技能附属文件。对应表：agentscope_skill_resources。主键是 (id, resource_path)，删除随技能级联。
  *
- * <p>{@code id} 是所属技能 id（不是自增列），所以显式声明 {@code IdType.INPUT}：
- * 否则 MyBatis-Plus 会把名为 id 的字段当成自增/雪花主键去生成值。
+ * <p>只给路径查询用。写入走 JDBC 技能库，不经本实体插入。
  */
 @TableName("agentscope_skill_resources")
 public class SkillResourceBean {
-    @TableId(type = IdType.INPUT)
     private Long id;
     @TableField("resource_path")
     private String resourcePath;

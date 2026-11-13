@@ -7,36 +7,39 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.SkillTestSchema;
+import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.mcp.McpBoundTool;
 import com.beyondzy.demo.mcp.McpCallResult;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolDefinition;
-import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
-import com.beyondzy.demo.service.skill.SkillTestSupport;
-import com.beyondzy.demo.service.skill.UserScopedSkillRepository;
 import com.beyondzy.demo.service.user.UserService;
-import io.agentscope.core.ReActAgent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
+import io.agentscope.core.ReActAgent;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.session.SessionKey;
 import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.session.SessionLogStore;
 import io.agentscope.core.tool.ToolBase;
+import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
 import io.agentscope.harness.agent.HarnessAgent;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
+import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import reactor.core.publisher.Flux;
 
-/** 会话装配挂上按用户可见的技能仓库，并把 get_current_time 注册成只读允许。 */
+/** 会话装配挂上 JDBC 技能库，并把 get_current_time 注册成只读允许。 */
 class ChatSessionsSkillWiringTest {
 
     @TempDir Path workspace;
@@ -56,8 +59,9 @@ class ChatSessionsSkillWiringTest {
 
     @Test
     void registersClockToolReadOnlyAndAllow() throws Exception {
-        try (SkillTestSupport.Fixture fixture = SkillTestSupport.Fixture.open("wiring");
-                ChatSessions sessions = open(new UserScopedSkillRepository(fixture.store))) {
+        DataSource dataSource = memory();
+        try (JdbcAgentSkillRepository repo = new JdbcAgentSkillRepository(dataSource, SkillJdbc.dialect(dataSource));
+                ChatSessions sessions = open(repo)) {
             HarnessAgent agent = agent(sessions);
             assertInstanceOf(ToolBase.class, agent.getToolkit().getTool("get_current_user"));
             ToolBase clock = assertInstanceOf(ToolBase.class, agent.getToolkit().getTool("get_current_time"));
@@ -70,7 +74,7 @@ class ChatSessionsSkillWiringTest {
             assertNull(agent.getToolkit().getTool("search_docs"));
             assertNull(agent.getToolkit().getTool("write_note"));
             assertTrue(agent.getSkillRepositories().stream()
-                    .anyMatch(item -> item instanceof UserScopedSkillRepository));
+                    .anyMatch(item -> item instanceof JdbcAgentSkillRepository));
         }
     }
 
@@ -84,7 +88,7 @@ class ChatSessionsSkillWiringTest {
         };
     }
 
-    private ChatSessions open(UserScopedSkillRepository repo) {
+    private ChatSessions open(JdbcAgentSkillRepository repo) {
         return new ChatSessions(workspace, new IdleModel(), new EmptyStore(), "local-user",
                 null, mock(ReadModelPersistenceService.class), null, null, repo, mock(UserService.class));
     }
@@ -100,6 +104,14 @@ class ChatSessionsSkillWiringTest {
         Field field = ReActAgent.class.getDeclaredField("initialPermissionContext");
         field.setAccessible(true);
         return (PermissionContextState) field.get(agent.getDelegate());
+    }
+
+    private static DataSource memory() {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:wiring-" + System.nanoTime() + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
+        dataSource.setUser("sa");
+        SkillTestSchema.create(dataSource);
+        return dataSource;
     }
 
     private static final class EmptyStore implements SessionLogStore {

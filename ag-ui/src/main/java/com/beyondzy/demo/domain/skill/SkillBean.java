@@ -20,9 +20,6 @@ public class SkillBean {
     @TableField("skill_content")
     private String skillContent;
     private String source;
-    /** 归属用户；0 = 平台公共。唯一键是 (owner_user_id, name)。 */
-    @TableField("owner_user_id")
-    private Long ownerUserId;
     @TableField("metadata_json")
     private String metadataJson;
     @TableField("created_at")
@@ -43,8 +40,6 @@ public class SkillBean {
     public void setSkillContent(String skillContent) { this.skillContent = skillContent; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
-    public Long getOwnerUserId() { return ownerUserId; }
-    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public String getMetadataJson() { return metadataJson; }
     public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
     public LocalDateTime getCreatedAt() { return createdAt; }
