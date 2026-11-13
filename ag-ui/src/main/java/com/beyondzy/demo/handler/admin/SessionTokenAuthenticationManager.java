@@ -56,7 +56,7 @@ public class SessionTokenAuthenticationManager implements ReactiveAuthentication
         UserBean user = users.findById(validated.row().getUserId());
         if (user == null) return null;
         AuthPrincipal principal = new AuthPrincipal(
-                user.getId(), validated.row().getId(), user.getPhone(), user.getName());
+                user.getId(), validated.row().getId(), user.getPhone(), user.getName(), user.getRole());
         UsernamePasswordAuthenticationToken auth = UsernamePasswordAuthenticationToken.authenticated(
                 principal, rawToken, List.of());
         AuthOutcome outcome = new AuthOutcome(auth, validated, rawToken);

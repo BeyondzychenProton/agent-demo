@@ -8,6 +8,7 @@ public record SkillDetailResponse(
         String name,
         String description,
         String source,
+        long ownerUserId,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         String skillContent,

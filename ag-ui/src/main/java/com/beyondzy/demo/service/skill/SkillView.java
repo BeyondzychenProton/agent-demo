@@ -9,9 +9,16 @@ public record SkillView(
         String name,
         String description,
         String source,
+        long ownerUserId,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         String skillContent,
         List<SkillResource> resources) {
+
     public record SkillResource(String path, SkillFileKind kind, String content) {}
+
+    /** 是否平台公共技能（所有人可见）。 */
+    public boolean platform() {
+        return ownerUserId == SkillStore.PLATFORM_OWNER;
+    }
 }

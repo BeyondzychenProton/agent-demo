@@ -14,6 +14,8 @@ public class UserBean extends BaseAuditBean {
     private String name;
     private String phone;
     private String passwordHash;
+    /** 角色：admin / user。为空按普通用户处理。 */
+    private String role;
     private Integer isDeleted;
 
     public Long getId() { return id; }
@@ -24,6 +26,8 @@ public class UserBean extends BaseAuditBean {
     public void setPhone(String phone) { this.phone = phone; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
     public Integer getIsDeleted() { return isDeleted; }
     public void setIsDeleted(Integer isDeleted) { this.isDeleted = isDeleted; }
 }

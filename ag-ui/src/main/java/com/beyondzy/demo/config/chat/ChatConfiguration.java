@@ -1,22 +1,23 @@
 package com.beyondzy.demo.config.chat;
 
-import com.beyondzy.demo.config.skill.SkillJdbc;
 import com.beyondzy.demo.domain.user.UserBean;
+import com.beyondzy.demo.mapper.skill.SkillMapper;
+import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.mantianxing.MantianxingMcpClient;
-import com.beyondzy.demo.service.session.AgentSessionService;
-import com.beyondzy.demo.session.ChatSessions;
-import com.beyondzy.demo.session.MySqlSessionLogStore;
-import io.agentscope.core.skill.repository.AgentSkillRepository;
-import io.agentscope.extensions.jdbc.dialect.AbstractJdbcDialect;
-import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
-import javax.sql.DataSource;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.service.session.AgentSessionService;
+import com.beyondzy.demo.service.skill.SkillStore;
+import com.beyondzy.demo.service.skill.UserScopedSkillRepository;
 import com.beyondzy.demo.service.user.UserService;
+import com.beyondzy.demo.session.ChatSessions;
+import com.beyondzy.demo.session.MySqlSessionLogStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,24 +28,32 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 运行时装配：模型客户端 + 会话管理器。
+ * 运行时装配：模型客户端 + 会话管理器 + 技能仓库 + 用户工作空间。
  *
- * <p>SessionLog 由 MySQL 会话存储实现持久化。
- * 模型走 DashScope 的 OpenAI 兼容端点，由 baseUrl + endpointPath 拼成 /chat/completions。
+ * <p>两个关键变化：
+ * <ul>
+ *   <li>工作区根目录改为 {@code chat.workspace-root}（默认 {@code ./data/workspace}），
+ *       框架按 {@code IsolationScope.USER} 落到 {@code <root>/<userId>/}；</li>
+ *   <li>技能仓库改成自管的 {@link UserScopedSkillRepository}：平台技能 + 本人技能，
+ *       同名时本人优先。原生的 {@code JdbcAgentSkillRepository} 依赖 namespace 列，
+ *       与本库历史表结构不兼容，已不再使用。</li>
+ * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 public class ChatConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(ChatConfiguration.class);
 
+    /** 技能持久化：owner_user_id 表达归属（0 = 平台公共）。 */
     @Bean
-    AbstractJdbcDialect skillDialect(DataSource dataSource) {
-        return SkillJdbc.dialect(dataSource);
+    public SkillStore skillStore(SkillMapper skills, SkillResourceMapper resources) {
+        // 单独 new：Spring Boot 4 不再自动暴露 Jackson 的 ObjectMapper bean
+        return new SkillStore(skills, resources, new ObjectMapper());
     }
 
-    /** 默认可写。管理接口用它保存技能；模型侧不打开 skill_manage。 */
-    @Bean(destroyMethod = "close")
-    AgentSkillRepository skillRepository(DataSource dataSource, AbstractJdbcDialect skillDialect) {
-        return new JdbcAgentSkillRepository(dataSource, skillDialect);
+    /** 框架侧技能仓库：每次调用按 RuntimeContext 取"平台 + 本人"。 */
+    @Bean
+    public UserScopedSkillRepository skillRepository(SkillStore store) {
+        return new UserScopedSkillRepository(store);
     }
 
     @Bean(destroyMethod = "close")
@@ -57,12 +66,13 @@ public class ChatConfiguration {
             @Value("${chat.endpoint-path:/chat/completions}") String endpointPath,
             @Value("${chat.model}") String modelName,
             @Value("${chat.api-key}") String key,
+            @Value("${chat.workspace-root:./data/workspace}") String workspaceRoot,
             UserService users,
             @Value("${mcp.endpoint:}") String mcpEndpoint,
             @Value("${mcp.app-key:}") String mcpAppKey,
             @Value("${mcp.secret:}") String mcpSecret,
             @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
-            AgentSkillRepository skillRepository)
+            UserScopedSkillRepository skillRepository)
             throws IOException {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
@@ -87,8 +97,11 @@ public class ChatConfiguration {
             logger.info("满天星 MCP 已配置 endpoint={}", mcpEndpoint.trim());
             mcpServers.add(mantianxing);
         }
+        Path workspace = Path.of(workspaceRoot).toAbsolutePath().normalize();
+        Files.createDirectories(workspace);
+        logger.info("用户工作空间根目录: {}", workspace);
         // 启动恢复使用种子用户命名空间；请求期由 UserContext 覆盖为当前登录用户。
-        return new ChatSessions(Path.of("."), model,
+        return new ChatSessions(workspace, model,
                 mySqlSessionLogStore, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers,
                 skillRepository, users);
     }
