@@ -1,5 +1,6 @@
 package com.beyondzy.demo.config.chat;
 
+import com.beyondzy.demo.config.langfuse.LangfuseTracing;
 import com.beyondzy.demo.config.skill.SkillJdbc;
 import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.mcp.McpServer;
@@ -61,7 +62,8 @@ public class ChatConfiguration {
             @Value("${mcp.app-key:}") String mcpAppKey,
             @Value("${mcp.secret:}") String mcpSecret,
             @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
-            AgentSkillRepository skillRepository) {
+            AgentSkillRepository skillRepository,
+            LangfuseTracing langfuseTracing) {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
             throw new IllegalArgumentException("未配置 chat.api-key，无法连接模型");
@@ -89,7 +91,7 @@ public class ChatConfiguration {
         // 启动时会扫描已有用户目录并恢复调度；请求期 userId 仍由 UserContext 覆盖。
         return new ChatSessions(Path.of(workspace), model,
                 null, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers,
-                skillRepository, users);
+                skillRepository, users, langfuseTracing.middlewares());
     }
 
     private static String phoneOf(UserService users, String userId) {

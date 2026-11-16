@@ -34,6 +34,7 @@ import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import com.beyondzy.demo.tools.ClockTools;
 import com.beyondzy.demo.tools.CurrentUserTool;
 import com.beyondzy.demo.service.user.UserService;
+import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -145,7 +146,7 @@ public final class ChatSessions implements AutoCloseable {
             AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository) {
         this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
-                agentSessionService, mcpServers, skillRepository, null);
+                agentSessionService, mcpServers, skillRepository, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
@@ -153,6 +154,16 @@ public final class ChatSessions implements AutoCloseable {
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository, UserService users) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
+                agentSessionService, mcpServers, skillRepository, users, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService, List<McpServer> mcpServers,
+            AgentSkillRepository skillRepository, UserService users,
+            List<MiddlewareBase> tracingMiddlewares) {
         if (readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要读模型持久化服务");
         modelName = model.getModelName();
@@ -218,6 +229,14 @@ public final class ChatSessions implements AutoCloseable {
         // 与日志后端共用同一份按用户分桶的 Filesystem，避免日志和工作区文件各写一处。
         if (userLog != null) {
             agentBuilder.abstractFilesystem(userLog.filesystem());
+        }
+        // 先挂 OtelTracingMiddleware，再挂补属性的 middleware。列表前者在洋葱外层，后者才能写到已打开的 span。
+        if (tracingMiddlewares != null) {
+            for (MiddlewareBase middleware : tracingMiddlewares) {
+                if (middleware != null) {
+                    agentBuilder.middleware(middleware);
+                }
+            }
         }
         agent = agentBuilder.build();
         // 工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。

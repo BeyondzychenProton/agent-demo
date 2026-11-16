@@ -66,6 +66,15 @@
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-extensions-agui</artifactId>
         </dependency>
+        <!-- 版本由 AgentScope BOM 导入的 OpenTelemetry BOM 管理，与 OtelTracingMiddleware 对齐。 -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
         <!-- JDBC 技能库。版本由 agentscope.version BOM 管理，不使用已废弃的 mysql skill repository。 -->
         <dependency>
             <groupId>io.agentscope</groupId>
@@ -122,6 +131,11 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
