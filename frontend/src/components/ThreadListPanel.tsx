@@ -3,7 +3,7 @@ import {
   useThreads,
   type Thread,
 } from "@copilotkit/react-core/v2";
-import { LogOut, MessageSquarePlus, PanelLeftClose, RefreshCcw, Trash2 } from "lucide-react";
+import { Settings, LogOut, MessageSquarePlus, PanelLeftClose, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import type { AuthUser } from "@/auth/api";
@@ -22,8 +22,8 @@ function accountLabel(user: AuthUser) {
   return user.phone;
 }
 
-export function ThreadListPanel({ user, onLogout, hidden = false, onCollapse }: {
-  user?: AuthUser; onLogout?: () => void; hidden?: boolean; onCollapse?: () => void;
+export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCollapse }: {
+  user?: AuthUser; onLogout?: () => void; onAdmin?: () => void; hidden?: boolean; onCollapse?: () => void;
 } = {}) {
   const chatConfig = useCopilotChatConfiguration();
   const restoredThreadRef = useRef(false);
@@ -159,6 +159,7 @@ export function ThreadListPanel({ user, onLogout, hidden = false, onCollapse }: 
             <p className="truncate text-sm font-medium text-foreground">{accountLabel(user)}</p>
             <p className="truncate text-[11px] text-muted-foreground">{user.phone}</p>
           </div>
+          {user.admin && onAdmin && <button type="button" onClick={onAdmin} title="管理界面" aria-label="管理界面" className="rounded-full p-2 text-muted-foreground hover:bg-accent hover:text-foreground"><Settings className="size-4" /></button>}
           <Button
             type="button"
             size="sm"

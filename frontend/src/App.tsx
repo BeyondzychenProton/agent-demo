@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Check, PanelLeftOpen, Pencil, X } from "lucide-react";
 import type { AuthUser } from "@/auth/api";
 import { apiFetch } from "@/auth/api";
+import { AdminPage } from "@/components/AdminPage";
 import { ApprovalBar } from "@/components/ApprovalBar";
 import { friendlyThreadTitle, ThreadListPanel } from "@/components/ThreadListPanel";
 import { WindowedTranscript } from "@/components/WindowedTranscript";
@@ -23,6 +24,7 @@ export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: ()
 }
 
 function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [adminOpen, setAdminOpen] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -56,10 +58,12 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     finally { setSavingTitle(false); }
   };
 
+  if (adminOpen && user.admin) return <AdminPage user={user} onBack={() => setAdminOpen(false)} />;
+
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background">
       <div className="flex h-full w-full min-w-0 max-[760px]:flex-col">
-        <ThreadListPanel user={user} onLogout={onLogout} hidden={sidebarHidden} onCollapse={() => setSidebarHidden(true)} />
+        <ThreadListPanel user={user} onLogout={onLogout} onAdmin={() => setAdminOpen(true)} hidden={sidebarHidden} onCollapse={() => setSidebarHidden(true)} />
         {threadId ? (
           <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
             <header className="relative flex h-12 shrink-0 items-center justify-center border-b border-border/70 px-4 sm:px-6">

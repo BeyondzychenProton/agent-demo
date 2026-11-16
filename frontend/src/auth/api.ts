@@ -2,6 +2,7 @@ export type AuthUser = {
   userId: number;
   name: string;
   phone: string;
+  admin?: boolean;
   expiresAt?: number;
   token?: string;
 };
