@@ -29,6 +29,7 @@ const descriptions: Record<string,string> = { "平台总览":"查看平台运行
 
 export function AdminPage({ user, onBack }: { user: AuthUser; onBack: () => void }) {
   const [page, setPage] = useState("用户与权限");
+  const navigate = (action: () => void) => { const event = new CustomEvent("admin-before-navigate", { cancelable: true, detail: { resume: action } }); if (window.dispatchEvent(event)) action(); };
   const [department, setDepartment] = useState("全部成员");
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("全部角色");
@@ -40,8 +41,8 @@ export function AdminPage({ user, onBack }: { user: AuthUser; onBack: () => void
   return <main className="admin-app">
     <aside className="admin-sidebar">
       <div className="admin-brand"><div className="admin-brand-mark"><Sparkles size={21} strokeWidth={1.7}/></div><div><strong>海卓大脑</strong><span>HAIZHUO BRAIN</span></div></div>
-      <nav className="admin-nav" aria-label="管理导航">{menus.map(group => <div className="admin-nav-group" key={group.group}><p>{group.group}</p>{group.items.map(({ name, icon: Icon }) => <button key={name} title={name} onClick={() => setPage(name)} className={page === name ? "active" : ""}><Icon size={17} strokeWidth={1.6}/><span>{name}</span></button>)}</div>)}</nav>
-      <div className="admin-sidebar-footer"><div className="admin-sidebar-user"><span>{user.name?.slice(0,1) || "管"}</span><div><strong>{user.name || "管理员"}</strong><small>平台管理员</small></div></div><button onClick={onBack} title="返回会话"><ArrowLeft size={15}/><span>返回会话</span></button></div>
+      <nav className="admin-nav" aria-label="管理导航">{menus.map(group => <div className="admin-nav-group" key={group.group}><p>{group.group}</p>{group.items.map(({ name, icon: Icon }) => <button key={name} title={name} onClick={() => navigate(() => setPage(name))} className={page === name ? "active" : ""}><Icon size={17} strokeWidth={1.6}/><span>{name}</span></button>)}</div>)}</nav>
+      <div className="admin-sidebar-footer"><div className="admin-sidebar-user"><span>{user.name?.slice(0,1) || "管"}</span><div><strong>{user.name || "管理员"}</strong><small>平台管理员</small></div></div><button onClick={() => navigate(onBack)} title="返回会话"><ArrowLeft size={15}/><span>返回会话</span></button></div>
     </aside>
     <div className="admin-main"><header className="admin-topbar"><div>能力与连接 <ChevronRight size={13}/> <span>{page}</span></div></header>
       <div className="admin-scroll"><div className="admin-content"><div className="admin-heading"><h1>{page}</h1><p>{page === "用户与权限" ? "管理员工身份、两类平台角色与业务能力授权。" : descriptions[page]}</p></div>
@@ -65,5 +66,3 @@ function MockSection({page}:{page:string}) {
   };
   return <section className={`admin-mock ${page === "平台总览" ? "overview" : ""}`}>{(entries[page] || []).map(row => <div key={row[0]} className="admin-card admin-mock-card"><div className="admin-mock-icon">{page === "平台总览" ? <Activity size={20}/> : <ClipboardList size={20}/>}</div><div><strong>{row[0]}</strong><p>{row[1]}</p></div>{row[2] && <span>{row[2]}</span>}</div>)}</section>;
 }
-
-
