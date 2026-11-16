@@ -22,6 +22,7 @@ import io.agentscope.core.session.SessionLog;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.session.AgentSession;
+import io.agentscope.core.session.SessionKey;
 import io.agentscope.core.session.SessionLogStore;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.display.DisplayViewStore;
@@ -56,6 +57,7 @@ public final class ChatSessions implements AutoCloseable {
     private final HarnessAgent agent;
     private final List<String> mcpToolNames;
     private final SessionLogStore store;
+    private final UserWorkspaceLog userLog;
     private final String defaultUserId;
     private final AgentSessionService agentSessions;
     private final ThreadCatalog catalog;
@@ -151,12 +153,19 @@ public final class ChatSessions implements AutoCloseable {
             DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
             AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository, UserService users) {
-        if (sessionLogStore == null || readModelPersistence == null)
-            throw new IllegalArgumentException("ChatSessions 需要会话存储和读模型持久化服务");
+        if (readModelPersistence == null)
+            throw new IllegalArgumentException("ChatSessions 需要读模型持久化服务");
         modelName = model.getModelName();
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
-        store = sessionLogStore;
+        // 未指定外部日志后端时，使用官方 WorkspaceSessionLogStore，并按用户分桶。
+        if (sessionLogStore == null) {
+            userLog = new UserWorkspaceLog(workspace);
+            store = userLog.store();
+        } else {
+            userLog = null;
+            store = sessionLogStore;
+        }
         // 时钟用于将会议中的相对日期转换为绝对时间。
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new ClockTools());
@@ -183,7 +192,7 @@ public final class ChatSessions implements AutoCloseable {
                         .model(model)
                         // 提示词只在真正挂上对应工具时启用，避免“有文案无工具”
                         .sysPrompt(systemPrompt(mcpToolsMounted))
-                        .workspace(workspace.toAbsolutePath())
+                        .workspace(userLog == null ? workspace.toAbsolutePath() : userLog.root())
                         .sessionLogStore(store)
                         .toolkit(toolkit)
                         // 查询允许直接执行，写入必须 ASK；真正授权来自确认结果，不能以聊天中的“批准”代替。
@@ -206,14 +215,21 @@ public final class ChatSessions implements AutoCloseable {
         if (skillRepository != null) {
             agentBuilder.skillRepository(skillRepository);
         }
+        // 与日志后端共用同一份按用户分桶的 Filesystem，避免日志和工作区文件各写一处。
+        if (userLog != null) {
+            agentBuilder.abstractFilesystem(userLog.filesystem());
+        }
         agent = agentBuilder.build();
         // 工具在 build 前装入 Toolkit，由 Harness 复制进运行时注册表；本轮不在运行中刷新或切换。
         mcpToolNames = mcpTools.stream().map(McpBoundTool::getName).toList();
         catalog = new ThreadCatalog(this::list, this::log, displayIndex);
         displayViews = new DisplayViewStore(displayIndex);
-        // 启动时恢复已落盘会话；目录按需从两份日志派生。
-        List<String> existing = list();
-        existing.forEach(id -> session(id).start());
+        // 启动时恢复已落盘会话。用户工作区按目录逐个用户开启，不能只用种子用户去列。
+        if (userLog != null) {
+            userLog.userIds().forEach(this::startStored);
+        } else {
+            list().forEach(id -> session(id).start());
+        }
         projection = new ProjectionService(this::log, readModelPersistence);
     }
 
@@ -295,8 +311,30 @@ public final class ChatSessions implements AutoCloseable {
     }
 
     AgentSession session(String id) {
-        assertAccessible(id);
-        return agent.session(context(id));
+        String checked = id(id);
+        assertAccessible(checked);
+        claim(checked);
+        return agent.session(context(checked));
+    }
+
+    /** 首次打开时登记归属。日志本身在用户工作区，这张表只保留所有权与标题。 */
+    private void claim(String sessionId) {
+        if (agentSessions == null) return;
+        String user = activeUserId();
+        if (user == null || user.isBlank() || !user.chars().allMatch(Character::isDigit)) return;
+        long parsed = Long.parseLong(user);
+        if (parsed <= 0) return;
+        agentSessions.register(parsed, AGENT, sessionId);
+    }
+
+    private void startStored(String userId) {
+        store.list(RuntimeContext.builder().userId(userId).build()).stream()
+                .filter(key -> AGENT.equals(key.agentId()))
+                .forEach(key -> agent.session(storedContext(userId, key)).start());
+    }
+
+    private static RuntimeContext storedContext(String userId, SessionKey key) {
+        return RuntimeContext.builder().userId(userId).sessionId(key.sessionId()).build();
     }
 
     /** 列出本 agent 下所有已落盘的会话 id。 */
