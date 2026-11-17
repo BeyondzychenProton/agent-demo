@@ -3,12 +3,14 @@ package com.beyondzy.demo.service.user.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.beyondzy.demo.domain.auth.AuthSessionBean;
 import com.beyondzy.demo.domain.user.UserBean;
+import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.mapper.auth.AuthSessionMapper;
 import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.service.user.UserService;
 
 import com.beyondzy.demo.support.DbTimes;
 import java.nio.charset.StandardCharsets;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -21,11 +23,13 @@ public class UserServiceImpl implements UserService {
     private static final String PHONE_PATTERN = "^\\+?[0-9]{7,20}$";
     private final UserMapper mapper;
     private final AuthSessionMapper sessions;
+    private final AdminAccess admin;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public UserServiceImpl(UserMapper mapper, AuthSessionMapper sessions) {
+    public UserServiceImpl(UserMapper mapper, AuthSessionMapper sessions, AdminAccess admin) {
         this.mapper = mapper;
         this.sessions = sessions;
+        this.admin = admin;
     }
 
     @Override
@@ -95,5 +99,76 @@ public class UserServiceImpl implements UserService {
         sessions.delete(Wrappers.<AuthSessionBean>lambdaQuery()
                 .eq(AuthSessionBean::getUserId, userId)
                 .ne(AuthSessionBean::getId, sessionId));
+    }
+
+    @Override
+    @Transactional
+    public void syncDirectoryAccount(long sourceId, String name, String phone, boolean active) {
+        var account = findDirectoryAccount(sourceId);
+        // 已配置的管理员手机号只允许其当前来源账号继续同步。
+        if (admin.isAdmin(phone) && (account == null || !phone.equals(account.getPhone()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone reserved for the local admin");
+        }
+        try {
+            if (account == null) {
+                account = new UserBean();
+                account.setMantianxingUserId(sourceId);
+                account.setName(name);
+                account.setPhone(phone);
+                account.setPasswordHash(passwordEncoder.encode(SYNC_INITIAL_PASSWORD));
+                account.setMustChangePassword(1);
+                account.setIsDeleted(active ? 0 : 1);
+                mapper.insert(account);
+            } else {
+                mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
+                        .eq(UserBean::getId, account.getId())
+                        .set(UserBean::getName, name)
+                        .set(UserBean::getPhone, phone)
+                        .set(UserBean::getIsDeleted, active ? 0 : 1)
+                        .set(UserBean::getGmtModified, DbTimes.now()));
+            }
+        } catch (DuplicateKeyException ex) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone already belongs to another account", ex);
+        }
+        if (!active) revokeSessions(account.getId());
+    }
+
+    @Override
+    @Transactional
+    public void disableDirectoryAccount(long sourceId) {
+        var account = findDirectoryAccount(sourceId);
+        if (account == null) return;
+        mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
+                .eq(UserBean::getId, account.getId())
+                .set(UserBean::getIsDeleted, 1)
+                .set(UserBean::getGmtModified, DbTimes.now()));
+        revokeSessions(account.getId());
+    }
+
+    private UserBean findDirectoryAccount(long sourceId) {
+        return mapper.selectOne(Wrappers.<UserBean>lambdaQuery()
+                .select(UserBean::getId, UserBean::getPhone)
+                .eq(UserBean::getMantianxingUserId, sourceId));
+    }
+
+    private void revokeSessions(long userId) {
+        sessions.delete(Wrappers.<AuthSessionBean>lambdaQuery().eq(AuthSessionBean::getUserId, userId));
+    }
+
+    @Override
+    public void initializeDirectoryPasswordChanges() {
+        var pending = mapper.selectList(Wrappers.<UserBean>lambdaQuery()
+                .select(UserBean::getId, UserBean::getPasswordHash)
+                .isNotNull(UserBean::getMantianxingUserId)
+                .isNull(UserBean::getMustChangePassword));
+        // 对比原哈希后再写入，避免覆盖同时完成的首次改密。
+        for (var account : pending) {
+            boolean defaultPassword = matchesPassword(account, SYNC_INITIAL_PASSWORD);
+            mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
+                    .eq(UserBean::getId, account.getId())
+                    .isNull(UserBean::getMustChangePassword)
+                    .eq(UserBean::getPasswordHash, account.getPasswordHash())
+                    .set(UserBean::getMustChangePassword, defaultPassword ? 1 : 0));
+        }
     }
 }

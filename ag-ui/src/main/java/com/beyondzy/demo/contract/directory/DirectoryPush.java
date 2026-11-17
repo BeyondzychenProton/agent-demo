@@ -1,12 +1,13 @@
-package com.beyondzy.demo.web.directory;
+package com.beyondzy.demo.contract.directory;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
-record DirectoryPush(List<Department> departments, List<Member> users) {
-    DirectoryPush {
+/** 满天星推送批次。反序列化时校验整批，删除记录仅校验来源主键和版本。 */
+public record DirectoryPush(List<Department> departments, List<Member> users) {
+    public DirectoryPush {
         departments = departments == null ? List.of() : departments;
         users = users == null ? List.of() : users;
         int size = departments.size() + users.size();
@@ -34,15 +35,17 @@ record DirectoryPush(List<Department> departments, List<Member> users) {
         }
     }
 
-    record Department(Long deptId, Long version, String delFlag, Long parentId,
+    /** 部门变更，保留来源字段名及状态值。 */
+    public record Department(Long deptId, Long version, String delFlag, Long parentId,
                       String deptName, Integer orderNum, String status) {
-        boolean deleted() { return "2".equals(delFlag); }
+        public boolean deleted() { return "2".equals(delFlag); }
     }
 
-    record Member(Long userId, Long version, String delFlag, Long deptId,
+    /** 用户变更。手机号只接收，序列化推送历史时不写出。 */
+    public record Member(Long userId, Long version, String delFlag, Long deptId,
                   String userName, String nickName, String email, String status,
                   @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) String phonenumber) {
-        boolean deleted() { return "2".equals(delFlag); }
+        public boolean deleted() { return "2".equals(delFlag); }
     }
 
     private static void validateRow(Long id, Long version, String delFlag) {

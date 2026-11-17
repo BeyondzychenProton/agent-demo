@@ -1,8 +1,10 @@
 package com.beyondzy.demo.web.directory;
 
+import com.beyondzy.demo.contract.directory.DirectoryPush;
 import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.handler.admin.CurrentUser;
-import com.beyondzy.demo.web.directory.DirectoryStore.PushStatus;
+import com.beyondzy.demo.service.directory.DirectoryService;
+import com.beyondzy.demo.service.directory.DirectoryService.PushStatus;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,17 +20,18 @@ import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+/** 满天星推送和管理员通讯录查询入口。 */
 @RestController
 public class DirectoryController {
     public static final String PUSH_PATH = "/api/integrations/mantianxing/v1/directory/changes";
 
-    private final DirectoryStore store;
+    private final DirectoryService directory;
     private final AdminAccess admin;
     private final byte[] syncToken;
 
-    public DirectoryController(DirectoryStore store, AdminAccess admin,
+    public DirectoryController(DirectoryService directory, AdminAccess admin,
                                @Value("${app.directory.sync-token:${MTX_DIRECTORY_SYNC_TOKEN:}}") String syncToken) {
-        this.store = store;
+        this.directory = directory;
         this.admin = admin;
         this.syncToken = syncToken.isBlank() ? new byte[0] : syncToken.getBytes(StandardCharsets.UTF_8);
     }
@@ -50,7 +53,7 @@ public class DirectoryController {
                                 .then(Mono.error(error)))
                 .flatMap(push -> Mono.<Void>fromRunnable(() -> {
                     try {
-                        store.apply(push);
+                        directory.apply(push);
                     } catch (RuntimeException error) {
                         recordFailure(push, PushStatus.FAILED, error);
                         throw error;
@@ -58,21 +61,22 @@ public class DirectoryController {
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 
+    /** 业务事务回滚后尝试单独留痕，保留原始异常供接口返回。 */
     private void recordFailure(DirectoryPush push, PushStatus status, RuntimeException error) {
         try {
-            store.recordPush(push, status);
+            directory.recordPush(push, status);
         } catch (RuntimeException historyError) {
             error.addSuppressed(historyError);
         }
     }
 
     @GetMapping("/api/admin/directory")
-    public Mono<DirectoryStore.Directory> read() {
+    public Mono<DirectoryService.Directory> read() {
         return CurrentUser.require().flatMap(principal -> {
             if (!admin.isAdmin(principal.phone())) {
                 return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required"));
             }
-            return Mono.fromCallable(store::read).subscribeOn(Schedulers.boundedElastic());
+            return Mono.fromCallable(directory::read).subscribeOn(Schedulers.boundedElastic());
         });
     }
 }
