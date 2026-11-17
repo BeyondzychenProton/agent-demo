@@ -25,7 +25,4 @@ public interface UserService {
 
     /** 禁用来源账号并撤销其登录会话。 */
     void disableDirectoryAccount(long sourceId);
-
-    /** 为仍在使用初始密码的历史同步账号补齐首次改密标记。 */
-    void initializeDirectoryPasswordChanges();
 }

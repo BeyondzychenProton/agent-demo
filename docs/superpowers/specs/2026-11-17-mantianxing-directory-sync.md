@@ -58,7 +58,7 @@
 - 用户记录首次写入时，系统以满天星的 `userId` 创建 `app_user` 登录账号，用户可用 `phonenumber` 和初始密码 `nonProdPassword` 登录。系统用 BCrypt 按账号生成哈希。使用初始密码登录后必须先修改密码，再进入系统。
 - 姓名、手机号和账号状态随来源记录更新。本地账号主键、聊天记录及用户已设置的密码保留。停用或删除会阻止登录并撤销已有会话，恢复后使用原密码登录。
 - 活跃手机号已被其他本地账号占用，或属于平台管理员配置时，整批返回 409 并回滚。发送方需解决冲突后再投递。已有本地账号的身份和会话通过原账号保留。
-- 管理服务重启时自动执行 `V8__app_user_mantianxing.sql` 和 `V9__app_user_password_change.sql`。已同步账号仍在使用初始密码的，也会被要求改密。若此前已按旧版契约导入通讯录，满天星需补发包含手机号且版本更高的用户记录，以创建对应登录账号。
+- 部署前手动执行尚未应用的数据库脚本。历史同步账号在认证时补齐首次改密标记，仍使用初始密码的账号需要先改密。若此前已按旧版契约导入通讯录，满天星需补发包含手机号且版本更高的用户记录，以创建对应登录账号。
 - 登录和 `GET /api/auth/me` 返回 `mustChangePassword`。为 true 时，前端显示强制改密页，业务接口返回 403 和 `PASSWORD_CHANGE_REQUIRED`。改密接口为 `POST /api/auth/password`，JSON 字段是 `currentPassword` 和 `newPassword`。成功返回 204，当前会话恢复业务访问，其他已有登录会话失效。
 
 
@@ -76,4 +76,4 @@
 
 `GET /api/admin/directory` 使用现有本地登录会话，并按平台管理员配置授权。返回 `departments` 与 `users`，各 ID 以字符串返回。前端按部门树展示成员，父部门计数包含可见子部门成员。已删除记录从返回结果移除。查到成员而暂未收到其部门时，该成员仍可在「全部成员」查看。
 
-建表脚本为 `ag-ui/src/main/resources/db/mysql/V7__app_directory.sql`，后端启动时执行。数据库需支持 MySQL 8.0.19 或更新版本的 INSERT 行别名语法。
+部署前，按顺序手动执行 `ag-ui/src/main/resources/db/mysql/` 下尚未应用的 `V7__app_directory.sql`、`V8__app_user_mantianxing.sql` 和 `V9__app_user_password_change.sql`。V8 和 V9 修改现有 `app_user` 表，每个脚本只执行一次。数据库需支持 MySQL 8.0.19 或更新版本的 INSERT 行别名语法。

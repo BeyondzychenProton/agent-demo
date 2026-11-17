@@ -7,7 +7,6 @@ import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.mapper.auth.AuthSessionMapper;
 import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.service.user.UserService;
-
 import com.beyondzy.demo.support.DbTimes;
 import java.nio.charset.StandardCharsets;
 import org.springframework.dao.DuplicateKeyException;
@@ -50,14 +49,16 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserBean findByPhone(String phone) {
-        return mapper.selectOne(Wrappers.<UserBean>lambdaQuery()
+        var user = mapper.selectOne(Wrappers.<UserBean>lambdaQuery()
                 .apply("phone_active = {0}", phone)
                 .last("FOR UPDATE"));
+        return initializePasswordChange(user);
     }
 
     @Override
     public UserBean findById(long id) {
         UserBean user = mapper.selectById(id);
+        user = initializePasswordChange(user);
         if (user == null || (user.getIsDeleted() != null && user.getIsDeleted() != 0)) {
             return null;
         }
@@ -155,20 +156,21 @@ public class UserServiceImpl implements UserService {
         sessions.delete(Wrappers.<AuthSessionBean>lambdaQuery().eq(AuthSessionBean::getUserId, userId));
     }
 
-    @Override
-    public void initializeDirectoryPasswordChanges() {
-        var pending = mapper.selectList(Wrappers.<UserBean>lambdaQuery()
-                .select(UserBean::getId, UserBean::getPasswordHash)
-                .isNotNull(UserBean::getMantianxingUserId)
-                .isNull(UserBean::getMustChangePassword));
-        // 对比原哈希后再写入，避免覆盖同时完成的首次改密。
-        for (var account : pending) {
-            boolean defaultPassword = matchesPassword(account, SYNC_INITIAL_PASSWORD);
-            mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
-                    .eq(UserBean::getId, account.getId())
-                    .isNull(UserBean::getMustChangePassword)
-                    .eq(UserBean::getPasswordHash, account.getPasswordHash())
-                    .set(UserBean::getMustChangePassword, defaultPassword ? 1 : 0));
-        }
+    /** 历史同步账号在认证时补齐标记，保留并发完成的改密结果。 */
+    private UserBean initializePasswordChange(UserBean user) {
+        if (user == null || user.getMantianxingUserId() == null || user.getMustChangePassword() != null
+                || Integer.valueOf(1).equals(user.getIsDeleted())) return user;
+
+        int required = matchesPassword(user, SYNC_INITIAL_PASSWORD) ? 1 : 0;
+        int updated = mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
+                .eq(UserBean::getId, user.getId())
+                .eq(UserBean::getIsDeleted, 0)
+                .isNull(UserBean::getMustChangePassword)
+                .eq(UserBean::getPasswordHash, user.getPasswordHash())
+                .set(UserBean::getMustChangePassword, required));
+        if (updated == 0) return mapper.selectById(user.getId());
+
+        user.setMustChangePassword(required);
+        return user;
     }
 }
