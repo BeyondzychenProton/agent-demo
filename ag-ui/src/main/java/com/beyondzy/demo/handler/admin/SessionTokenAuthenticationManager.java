@@ -9,6 +9,7 @@ import java.util.List;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -17,6 +18,8 @@ import reactor.core.scheduler.Schedulers;
 /** 校验不透明 token，并在需要时滑动续期。 */
 @Component
 public class SessionTokenAuthenticationManager implements ReactiveAuthenticationManager {
+    public static final String APP_ACCESS = "APP_ACCESS";
+
     private final AuthSessionService sessions;
     private final UserService users;
     private final AuthCookieSupport cookies;
@@ -58,7 +61,8 @@ public class SessionTokenAuthenticationManager implements ReactiveAuthentication
         AuthPrincipal principal = new AuthPrincipal(
                 user.getId(), validated.row().getId(), user.getPhone(), user.getName());
         UsernamePasswordAuthenticationToken auth = UsernamePasswordAuthenticationToken.authenticated(
-                principal, rawToken, List.of());
+                principal, rawToken, user.isPasswordChangeRequired()
+                        ? List.of() : List.of(new SimpleGrantedAuthority(APP_ACCESS)));
         AuthOutcome outcome = new AuthOutcome(auth, validated, rawToken);
         auth.setDetails(outcome);
         return outcome;

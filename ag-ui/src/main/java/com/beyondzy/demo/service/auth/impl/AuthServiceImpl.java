@@ -7,6 +7,7 @@ import com.beyondzy.demo.service.auth.AuthSessionService;
 import com.beyondzy.demo.service.user.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /** 登录、注销与当前用户查询。 */
@@ -21,6 +22,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public LoginResult login(String phone, String password) {
         if (phone == null || phone.isBlank() || password == null || password.isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "手机号和密码不能为空");

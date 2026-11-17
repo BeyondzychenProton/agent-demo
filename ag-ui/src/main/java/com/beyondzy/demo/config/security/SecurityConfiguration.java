@@ -2,6 +2,7 @@ package com.beyondzy.demo.config.security;
 
 import com.beyondzy.demo.handler.admin.SessionTokenAuthenticationConverter;
 import com.beyondzy.demo.handler.admin.SessionTokenAuthenticationManager;
+import com.beyondzy.demo.web.directory.DirectoryController;
 import java.nio.charset.StandardCharsets;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,7 +35,7 @@ public class SecurityConfiguration {
         authFilter.setServerAuthenticationConverter(authenticationConverter);
         authFilter.setSecurityContextRepository(NoOpServerSecurityContextRepository.getInstance());
         authFilter.setRequiresAuthenticationMatcher(new NegatedServerWebExchangeMatcher(
-                ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/auth/login")));
+                ServerWebExchangeMatchers.pathMatchers(HttpMethod.POST, "/api/auth/login", DirectoryController.PUSH_PATH)));
         authFilter.setAuthenticationSuccessHandler(renewingSuccessHandler(authenticationManager));
         authFilter.setAuthenticationFailureHandler((exchange, ex) ->
                 writeUnauthorized(exchange.getExchange()));
@@ -46,12 +47,15 @@ public class SecurityConfiguration {
                 .logout(ServerHttpSecurity.LogoutSpec::disable)
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
                 .authorizeExchange(exchanges -> exchanges
-                        .pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                        .pathMatchers("/api/**", "/agui/**").authenticated()
+                        .pathMatchers(HttpMethod.POST, "/api/auth/login", DirectoryController.PUSH_PATH).permitAll()
+                        .pathMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                        .pathMatchers(HttpMethod.POST, "/api/auth/password", "/api/auth/logout").authenticated()
+                        .pathMatchers("/api/**", "/agui/**")
+                        .hasAuthority(SessionTokenAuthenticationManager.APP_ACCESS)
                         .anyExchange().permitAll())
                 .exceptionHandling(spec -> spec
                         .authenticationEntryPoint((exchange, ex) -> writeUnauthorized(exchange))
-                        .accessDeniedHandler((exchange, ex) -> writeUnauthorized(exchange)))
+                        .accessDeniedHandler((exchange, ex) -> writePasswordChangeRequired(exchange)))
                 .addFilterAt(authFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .build();
     }
@@ -67,11 +71,19 @@ public class SecurityConfiguration {
         };
     }
 
+    private static Mono<Void> writePasswordChangeRequired(ServerWebExchange exchange) {
+        return writeError(exchange, HttpStatus.FORBIDDEN, "{\"error\":\"PASSWORD_CHANGE_REQUIRED\"}");
+    }
+
     private static Mono<Void> writeUnauthorized(ServerWebExchange exchange) {
+        return writeError(exchange, HttpStatus.UNAUTHORIZED, "{\"error\":\"未登录或会话已失效\"}");
+    }
+
+    private static Mono<Void> writeError(ServerWebExchange exchange, HttpStatus status, String errorJson) {
         var response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-        byte[] body = "{\"error\":\"未登录或会话已失效\"}".getBytes(StandardCharsets.UTF_8);
+        byte[] body = errorJson.getBytes(StandardCharsets.UTF_8);
         return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
     }
 }

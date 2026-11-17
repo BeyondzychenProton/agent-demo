@@ -3,6 +3,7 @@ export type AuthUser = {
   name: string;
   phone: string;
   admin?: boolean;
+  mustChangePassword?: boolean;
   expiresAt?: number;
   token?: string;
 };

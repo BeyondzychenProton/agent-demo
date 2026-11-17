@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { AuthExpiredError, fetchMe, logout, type AuthUser } from "@/auth/api";
 import { LoginPage } from "@/auth/LoginPage";
+import { RequiredPasswordChange } from "@/auth/ChangePasswordButton";
 
 type AuthState =
   | { status: "loading" }
@@ -44,6 +45,9 @@ export function AuthGate({ children }: { children: (user: AuthUser, onLogout: ()
   }
   if (state.status === "anonymous") {
     return <LoginPage onSuccess={(user) => setState({ status: "authenticated", user })} />;
+  }
+  if (state.user.mustChangePassword) {
+    return <RequiredPasswordChange onComplete={refresh} onLogout={() => void onLogout()} />;
   }
   return <>{children(state.user, () => void onLogout())}</>;
 }

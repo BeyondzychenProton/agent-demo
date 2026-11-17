@@ -1,12 +1,13 @@
 package com.beyondzy.demo.web.auth;
 
+import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.handler.admin.AuthCookieSupport;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.auth.AuthService;
 import com.beyondzy.demo.service.auth.AuthSessionService;
+import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.auth.req.LoginRequest;
 import com.beyondzy.demo.web.auth.res.AuthUserResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,13 +26,16 @@ public class AuthController {
     private final AuthService auth;
     private final AuthSessionService sessions;
     private final AuthCookieSupport cookies;
-    @Value("${app.admin.phone:15738515168}")
-    private String adminPhone;
+    private final AdminAccess admin;
+    private final UserService users;
 
-    public AuthController(AuthService auth, AuthSessionService sessions, AuthCookieSupport cookies) {
+    public AuthController(AuthService auth, AuthSessionService sessions, AuthCookieSupport cookies,
+                          AdminAccess admin, UserService users) {
         this.auth = auth;
         this.sessions = sessions;
         this.cookies = cookies;
+        this.admin = admin;
+        this.users = users;
     }
 
     @PostMapping("/login")
@@ -45,7 +49,7 @@ public class AuthController {
                     return ResponseEntity.ok(AuthUserResponse.of(
                             result.user(),
                             result.session().row().getExpiresAt(),
-                            result.session().rawToken(), isAdmin(result.user().getPhone())));
+                            result.session().rawToken(), admin.isAdmin(result.user().getPhone())));
                 });
     }
 
@@ -67,13 +71,20 @@ public class AuthController {
         return CurrentUser.require()
                 .flatMap(principal -> Mono.fromCallable(() -> {
                     var user = auth.requireUser(principal.userId());
-                    return AuthUserResponse.of(user, null, null, isAdmin(user.getPhone()));
+                    return AuthUserResponse.of(user, null, null, admin.isAdmin(user.getPhone()));
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 
-    private boolean isAdmin(String phone) {
-        return phone != null && !adminPhone.isBlank() && phone.equals(adminPhone.trim());
+    @PostMapping(path = "/password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Mono<ResponseEntity<Void>> changePassword(@RequestBody PasswordChange body) {
+        return CurrentUser.require()
+                .flatMap(principal -> Mono.fromRunnable(() -> users.changePassword(
+                        principal.userId(), principal.authSessionId(), body.currentPassword(), body.newPassword()))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .thenReturn(ResponseEntity.noContent().build());
     }
+
+    public record PasswordChange(String currentPassword, String newPassword) {}
 
     private static String bearer(ServerWebExchange exchange) {
         String header = exchange.getRequest().getHeaders().getFirst("Authorization");

@@ -15,6 +15,8 @@ public class UserBean extends BaseAuditBean {
     private String phone;
     private String passwordHash;
     private Integer isDeleted;
+    private Long mantianxingUserId;
+    private Integer mustChangePassword;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -26,4 +28,12 @@ public class UserBean extends BaseAuditBean {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public Integer getIsDeleted() { return isDeleted; }
     public void setIsDeleted(Integer isDeleted) { this.isDeleted = isDeleted; }
+    public Long getMantianxingUserId() { return mantianxingUserId; }
+    public void setMantianxingUserId(Long mantianxingUserId) { this.mantianxingUserId = mantianxingUserId; }
+    public Integer getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Integer mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+
+    public boolean isPasswordChangeRequired() {
+        return mustChangePassword == null ? mantianxingUserId != null : mustChangePassword == 1;
+    }
 }
