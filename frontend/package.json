@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:h5-demo": "vite --mode h5-demo --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "node --import ./tests/resolve-ts.mjs --experimental-strip-types --test tests/*.test.ts",

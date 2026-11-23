@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CopilotChatAssistantMessage } from "@copilotkit/react-core/v2";
 import { SoftMessageBubble } from "@/components/chat/SoftMessageBubble";
@@ -10,8 +10,11 @@ import { ToolCardView } from "@/components/ToolCardView";
 import { useThreadView, type ViewItem } from "@/readmodel/threadStore";
 
 /** 两个展示面消费同一个状态仓库；只挂载视口附近的动态高度消息行。 */
-export function WindowedTranscript({ threadId, diagnostic = false }: { threadId: string; diagnostic?: boolean }) {
+export function WindowedTranscript({ threadId, diagnostic = false, emptyState }: {
+  threadId: string; diagnostic?: boolean; emptyState?: ReactNode;
+}) {
   const view = useThreadView(threadId);
+  const showWelcome = emptyState && !view.items.length && !view.error && !view.submission && !view.loading;
   const scroll = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const programmatic = useRef(false);
@@ -71,11 +74,11 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
     }
   }, [rows, view.fetching, virtual, totalHeight, tailVersion]);
   return <div className="flex h-full min-h-0 flex-col gap-1">
-    <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-muted-foreground">
+    {!showWelcome && <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-muted-foreground">
       {view.hasMore && <button onClick={() => void load()} disabled={view.fetching} className="underline underline-offset-2">{view.fetching ? "加载中…" : "加载更早"}</button>}
       <span>{view.status?.activeRun ? "正在执行" : view.status?.syncState === "syncing" ? "正在同步" : "已同步"}</span>
       {view.trimmed && <span>已释放远处历史，可重新加载</span>}
-    </div>
+    </div>}
     {diagnostic && <p className="break-all font-mono text-[10px] text-muted-foreground">
       执行水位 {view.status?.execSeq ?? 0} / 输入水位 {view.status?.inboxSeq ?? 0} / 展示版本 {view.status?.revision ?? 0}
     </p>}
@@ -91,7 +94,9 @@ export function WindowedTranscript({ threadId, diagnostic = false }: { threadId:
       const element = scroll.current;
       if (element) following.current = isNearBottom(element.scrollTop, element.scrollHeight, element.clientHeight);
     }} aria-label={diagnostic ? "服务端历史视图" : "会话消息"}>
-      {!view.loading && !view.items.length && <p className="px-1 py-8 text-center text-sm text-muted-foreground">发送一条消息，开始会话。</p>}
+      {showWelcome ? emptyState : (!emptyState && !view.loading && !view.items.length && (
+        <p className="px-1 py-8 text-center text-sm text-muted-foreground">发送一条消息，开始会话。</p>
+      ))}
       <div style={{ height: virtual.getTotalSize(), position: "relative" }}>
         {virtual.getVirtualItems().map(row => <div key={row.key} data-index={row.index} ref={virtual.measureElement}
           style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)` }}>

@@ -1,7 +1,7 @@
 import { CopilotChatInput, useCopilotChatConfiguration, useThreads } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Check, PanelLeftOpen, Pencil, X } from "lucide-react";
+import { ArrowRight, ArrowUp, Check, PanelLeftOpen, Pencil, Sparkle, X } from "lucide-react";
 import type { AuthUser } from "@/auth/api";
 import { apiFetch } from "@/auth/api";
 import { AdminPage } from "@/components/AdminPage";
@@ -10,21 +10,23 @@ import { friendlyThreadTitle, ThreadListPanel } from "@/components/ThreadListPan
 import { WindowedTranscript } from "@/components/WindowedTranscript";
 import { THREAD_AGENT_ID } from "@/copilot/constants";
 import { getThreadStore, useThreadView } from "@/readmodel/threadStore";
+import "./h5.css";
 
 /** 公共输入组件与受控消息视图组合，历史加载不启动 Agent，也不再连接全量历史通道。 */
 const LegacyChatApp = lazy(() => import("@/components/LegacyChatApp"));
 
-export default function App({ user, onLogout }: { user?: AuthUser; onLogout?: () => void } = {}) {
+export default function App({ user, onLogout, h5 = false }: { user?: AuthUser; onLogout?: () => void; h5?: boolean } = {}) {
   const windowed = import.meta.env.VITE_WINDOWED_TRANSCRIPT !== "false";
-  if (!windowed) {
+  if (!windowed && !h5) {
     return <Suspense fallback={<p>正在加载兼容页面…</p>}><LegacyChatApp /></Suspense>;
   }
   if (!user || !onLogout) return <p>未登录</p>;
-  return <WindowedApp user={user} onLogout={onLogout} />;
+  return <WindowedApp user={user} onLogout={onLogout} h5={h5} />;
 }
 
-function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+function WindowedApp({ user, onLogout, h5 }: { user: AuthUser; onLogout: () => void; h5: boolean }) {
   const [adminOpen, setAdminOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -32,7 +34,13 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   const [savingTitle, setSavingTitle] = useState(false);
   const config = useCopilotChatConfiguration();
   const threadId = config?.threadId;
-  const { threads, refetchThreads } = useThreads({ agentId: THREAD_AGENT_ID, limit: 20 });
+  const { threads, refetchThreads, startNewThread } = useThreads({ agentId: THREAD_AGENT_ID, limit: 20 });
+  const newH5Thread = () => {
+    sessionStorage.removeItem("session-chat.active-thread");
+    startNewThread();
+    config?.startNewThread();
+    setHistoryOpen(false);
+  };
   const activeThread = threadId ? threads.find(thread => thread.id === threadId) : undefined;
   const headerTitle = activeThread
     ? friendlyThreadTitle(activeThread)
@@ -59,6 +67,25 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   };
 
   if (adminOpen && user.admin) return <AdminPage user={user} onBack={() => setAdminOpen(false)} />;
+
+  if (h5) return (
+    <main className="h5-shell">
+      <ThreadListPanel user={user} onLogout={onLogout} h5 hidden={!historyOpen}
+        onCollapse={() => setHistoryOpen(false)} onSelect={() => setHistoryOpen(false)} onNewThread={newH5Thread} />
+      <section className="h5-chat" hidden={historyOpen}>
+        <header className="h5-header">
+          <h1>海卓大脑</h1>
+          <nav aria-label="对话操作">
+            <button type="button" onClick={() => setHistoryOpen(true)}>历史</button>
+            <button type="button" onClick={newH5Thread} disabled={!threadId}>新对话</button>
+          </nav>
+        </header>
+        {threadId ? <ChatBody key={threadId} threadId={threadId} h5 /> : (
+          <p className="m-auto text-sm text-muted-foreground" role="status">正在初始化会话…</p>
+        )}
+      </section>
+    </main>
+  );
 
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background">
@@ -90,13 +117,7 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               )}
               {titleError && <span role="alert" className="absolute top-full z-10 rounded-md border border-border bg-card px-2 py-1 text-xs text-destructive shadow-sm">{titleError}</span>}
             </header>
-            <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pt-3 pb-2 sm:px-6 lg:px-8">
-              <WindowedTranscript key={threadId} threadId={threadId} />
-            </div>
-            <div className="w-full min-w-0 shrink-0 overflow-x-hidden px-4 pb-3 sm:px-6 lg:px-8">
-              <ApprovalBar key={`approval-${threadId}`} threadId={threadId} />
-              <ChatInput key={`input-${threadId}`} threadId={threadId} />
-            </div>
+            <ChatBody key={threadId} threadId={threadId} />
           </section>
         ) : (
           <div className="relative flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -113,8 +134,37 @@ function WindowedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   );
 }
 
-function ChatInput({ threadId }: { threadId: string }) {
+const suggestedPrompts = ["安排一场会议", "查看我的会议", "你可以帮我做什么？"];
+
+function ChatBody({ threadId, h5 = false }: { threadId: string; h5?: boolean }) {
   const [text, setText] = useState("");
+  return <>
+    <div className={h5 ? "h5-transcript" : "flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pt-3 pb-2 sm:px-6 lg:px-8"}>
+      <WindowedTranscript threadId={threadId} emptyState={h5 ? (
+        <div className="h5-welcome">
+          <Sparkle aria-hidden size={36} />
+          <h2>你好，我是海卓大脑</h2>
+          <p>想做什么，直接告诉我。</p>
+          <div className="h5-prompts">
+            {suggestedPrompts.map(prompt => (
+              <button type="button" key={prompt} onClick={() => setText(prompt)}>
+                {prompt}<ArrowRight size={16} aria-hidden />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : undefined} />
+    </div>
+    <div className={h5 ? "h5-composer-footer" : "w-full min-w-0 shrink-0 overflow-x-hidden px-4 pb-3 sm:px-6 lg:px-8"}>
+      <ApprovalBar threadId={threadId} />
+      <ChatInput threadId={threadId} text={text} setText={setText} h5={h5} />
+    </div>
+  </>;
+}
+
+function ChatInput({ threadId, text, setText, h5 }: {
+  threadId: string; text: string; setText: (text: string) => void; h5: boolean;
+}) {
   const view = useThreadView(threadId);
   const store = getThreadStore(threadId);
   const submission = view.submission;
@@ -157,7 +207,15 @@ function ChatInput({ threadId }: { threadId: string }) {
           重试同一请求
         </button>
       )}
-      <div className="composer-shell">
+      {h5 ? (
+        <form className="h5-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
+          <textarea aria-label="消息" placeholder="发消息…" rows={2} value={text}
+            disabled={view.submissionBlocked} onChange={event => setText(event.target.value)} />
+          <button type="submit" aria-label="发送消息" disabled={!text.trim() || view.submissionBlocked}>
+            <ArrowUp size={20} aria-hidden />
+          </button>
+        </form>
+      ) : <div className="composer-shell">
         <CopilotChatInput
           value={text}
           onChange={setText}
@@ -165,7 +223,7 @@ function ChatInput({ threadId }: { threadId: string }) {
           sendButton={{ disabled: view.submissionBlocked, "aria-label": "发送消息" }}
           textArea={{ disabled: view.submissionBlocked, placeholder: "输入消息，回车发送…" }}
         />
-      </div>
+      </div>}
     </div>
   );
 }

@@ -2,11 +2,14 @@
   "compilerOptions": {
     "composite": true,
     "skipLibCheck": true,
+    "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
+    "rewriteRelativeImportExtensions": true,
+    "paths": { "@/*": ["./src/*"] },
     "strict": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "scripts/h5-demo.ts", "src/readmodel/threadStore.ts", "src/types/chat.ts"]
 }

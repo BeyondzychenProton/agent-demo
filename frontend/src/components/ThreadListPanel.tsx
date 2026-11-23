@@ -3,10 +3,11 @@ import {
   useThreads,
   type Thread,
 } from "@copilotkit/react-core/v2";
-import { Settings, LogOut, MessageSquarePlus, PanelLeftClose, RefreshCcw, Trash2 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ChevronLeft, LogOut, MessageSquare, MessageSquarePlus, PanelLeftClose, RefreshCcw, Search, Settings, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AuthUser } from "@/auth/api";
+import { ChangePasswordButton } from "@/auth/ChangePasswordButton";
 import { THREAD_AGENT_ID } from "@/copilot/constants";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,9 +23,11 @@ function accountLabel(user: AuthUser) {
   return user.phone;
 }
 
-export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCollapse }: {
+export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCollapse, onSelect, onNewThread, h5 = false }: {
   user?: AuthUser; onLogout?: () => void; onAdmin?: () => void; hidden?: boolean; onCollapse?: () => void;
+  onSelect?: () => void; onNewThread?: () => void; h5?: boolean;
 } = {}) {
+  const [query, setQuery] = useState("");
   const chatConfig = useCopilotChatConfiguration();
   const restoredThreadRef = useRef(false);
   const {
@@ -52,6 +55,10 @@ export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCol
   }, [chatConfig]);
 
   const handleNewThread = () => {
+    if (onNewThread) {
+      onNewThread();
+      return;
+    }
     sessionStorage.removeItem(ACTIVE_THREAD_KEY);
     startNewThread();
     chatConfig?.startNewThread();
@@ -60,6 +67,7 @@ export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCol
   const handleSelectThread = (threadId: string) => {
     sessionStorage.setItem(ACTIVE_THREAD_KEY, threadId);
     chatConfig?.setActiveThreadId(threadId, { explicit: true });
+    onSelect?.();
   };
 
   const handleArchiveThread = async (threadId: string) => {
@@ -75,6 +83,40 @@ export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCol
       handleNewThread();
     }
   };
+
+  if (h5) {
+    const search = query.trim().toLowerCase();
+    const results = threads.filter(thread => friendlyThreadTitle(thread).toLowerCase().includes(search));
+    return <aside className="h5-history" aria-label="历史对话" hidden={hidden}>
+      <header className="h5-header">
+        <button type="button" onClick={onCollapse}><ChevronLeft size={18} aria-hidden />返回</button>
+        <h1>历史对话</h1>
+        {user && <ChangePasswordButton/>}
+        {onLogout && <button type="button" onClick={onLogout}>退出登录</button>}
+      </header>
+      <label className="h5-search">
+        <Search size={18} aria-hidden />
+        <input type="search" aria-label="搜索已加载对话" placeholder="搜索已加载对话" value={query}
+          onChange={event => setQuery(event.target.value)} />
+      </label>
+      <div className="h5-history-list">
+        {isLoading && <ThreadListHint text="正在加载会话…" />}
+        {error && <button type="button" onClick={refetchThreads}>会话列表加载失败，点击重试</button>}
+        {!isLoading && !error && results.length === 0 && <ThreadListHint text={search ? "没有匹配的对话" : "还没有历史对话"} />}
+        {results.map(thread => <button type="button" className="h5-thread" key={thread.id}
+          aria-current={activeThreadId === thread.id ? "true" : undefined} onClick={() => handleSelectThread(thread.id)}>
+          <MessageSquare size={19} aria-hidden />
+          <span><strong>{friendlyThreadTitle(thread)}</strong><small>{formatThreadTime(thread.lastRunAt ?? thread.updatedAt)}</small></span>
+        </button>)}
+        {hasMoreThreads && <button type="button" className="h5-load-more" onClick={fetchMoreThreads} disabled={isFetchingMoreThreads}>
+          {isFetchingMoreThreads ? "加载中…" : "加载更多"}
+        </button>}
+      </div>
+      <footer className="h5-history-footer">
+        <button type="button" onClick={handleNewThread} disabled={!chatConfig}>新建对话</button>
+      </footer>
+    </aside>;
+  }
 
   return (
     <aside
