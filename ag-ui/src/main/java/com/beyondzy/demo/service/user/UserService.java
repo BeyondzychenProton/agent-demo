@@ -20,7 +20,7 @@ public interface UserService {
 
     void changePassword(long userId, long sessionId, String currentPassword, String newPassword);
 
-    /** 同步来源账号的姓名、手机号和启用状态，保留已设置的密码。 */
+    /** 同步来源账号的姓名、手机号和启用状态，保留已设置的密码和管理员标记。 */
     void syncDirectoryAccount(long sourceId, String name, String phone, boolean active);
 
     /** 禁用来源账号并撤销其登录会话。 */

@@ -3,7 +3,6 @@ package com.beyondzy.demo.service.user.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.beyondzy.demo.domain.auth.AuthSessionBean;
 import com.beyondzy.demo.domain.user.UserBean;
-import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.mapper.auth.AuthSessionMapper;
 import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.service.user.UserService;
@@ -22,13 +21,11 @@ public class UserServiceImpl implements UserService {
     private static final String PHONE_PATTERN = "^\\+?[0-9]{7,20}$";
     private final UserMapper mapper;
     private final AuthSessionMapper sessions;
-    private final AdminAccess admin;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public UserServiceImpl(UserMapper mapper, AuthSessionMapper sessions, AdminAccess admin) {
+    public UserServiceImpl(UserMapper mapper, AuthSessionMapper sessions) {
         this.mapper = mapper;
         this.sessions = sessions;
-        this.admin = admin;
     }
 
     @Override
@@ -106,10 +103,6 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void syncDirectoryAccount(long sourceId, String name, String phone, boolean active) {
         var account = findDirectoryAccount(sourceId);
-        // 已配置的管理员手机号只允许其当前来源账号继续同步。
-        if (admin.isAdmin(phone) && (account == null || !phone.equals(account.getPhone()))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone reserved for the local admin");
-        }
         try {
             if (account == null) {
                 account = new UserBean();

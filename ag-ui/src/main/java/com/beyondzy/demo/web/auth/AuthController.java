@@ -1,6 +1,5 @@
 package com.beyondzy.demo.web.auth;
 
-import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.handler.admin.AuthCookieSupport;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.auth.AuthService;
@@ -26,15 +25,13 @@ public class AuthController {
     private final AuthService auth;
     private final AuthSessionService sessions;
     private final AuthCookieSupport cookies;
-    private final AdminAccess admin;
     private final UserService users;
 
     public AuthController(AuthService auth, AuthSessionService sessions, AuthCookieSupport cookies,
-                          AdminAccess admin, UserService users) {
+                          UserService users) {
         this.auth = auth;
         this.sessions = sessions;
         this.cookies = cookies;
-        this.admin = admin;
         this.users = users;
     }
 
@@ -49,7 +46,7 @@ public class AuthController {
                     return ResponseEntity.ok(AuthUserResponse.of(
                             result.user(),
                             result.session().row().getExpiresAt(),
-                            result.session().rawToken(), admin.isAdmin(result.user().getPhone())));
+                            result.session().rawToken(), result.user().isAdministrator()));
                 });
     }
 
@@ -71,7 +68,7 @@ public class AuthController {
         return CurrentUser.require()
                 .flatMap(principal -> Mono.fromCallable(() -> {
                     var user = auth.requireUser(principal.userId());
-                    return AuthUserResponse.of(user, null, null, admin.isAdmin(user.getPhone()));
+                    return AuthUserResponse.of(user, null, null, user.isAdministrator());
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 

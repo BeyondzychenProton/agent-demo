@@ -1,9 +1,9 @@
 package com.beyondzy.demo.web.directory;
 
 import com.beyondzy.demo.contract.directory.DirectoryPush;
-import com.beyondzy.demo.handler.admin.AdminAccess;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.directory.DirectoryService;
+import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.service.directory.DirectoryService.PushStatus;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,13 +26,13 @@ public class DirectoryController {
     public static final String PUSH_PATH = "/api/integrations/mantianxing/v1/directory/changes";
 
     private final DirectoryService directory;
-    private final AdminAccess admin;
+    private final UserService users;
     private final byte[] syncToken;
 
-    public DirectoryController(DirectoryService directory, AdminAccess admin,
+    public DirectoryController(DirectoryService directory, UserService users,
                                @Value("${app.directory.sync-token:${MTX_DIRECTORY_SYNC_TOKEN:}}") String syncToken) {
         this.directory = directory;
-        this.admin = admin;
+        this.users = users;
         this.syncToken = syncToken.isBlank() ? new byte[0] : syncToken.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -72,11 +72,12 @@ public class DirectoryController {
 
     @GetMapping("/api/admin/directory")
     public Mono<DirectoryService.Directory> read() {
-        return CurrentUser.require().flatMap(principal -> {
-            if (!admin.isAdmin(principal.phone())) {
-                return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required"));
+        return CurrentUser.require().flatMap(principal -> Mono.fromCallable(() -> {
+            var user = users.findById(principal.userId());
+            if (user == null || !user.isAdministrator()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
             }
-            return Mono.fromCallable(directory::read).subscribeOn(Schedulers.boundedElastic());
-        });
+            return directory.read();
+        }).subscribeOn(Schedulers.boundedElastic()));
     }
 }

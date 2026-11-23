@@ -3,6 +3,7 @@ package com.beyondzy.demo.domain.user;
 import com.beyondzy.demo.domain.BaseAuditBean;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -17,6 +18,8 @@ public class UserBean extends BaseAuditBean {
     private Integer isDeleted;
     private Long mantianxingUserId;
     private Integer mustChangePassword;
+    @TableField("is_admin")
+    private Integer isAdmin;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -32,6 +35,13 @@ public class UserBean extends BaseAuditBean {
     public void setMantianxingUserId(Long mantianxingUserId) { this.mantianxingUserId = mantianxingUserId; }
     public Integer getMustChangePassword() { return mustChangePassword; }
     public void setMustChangePassword(Integer mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+    public Integer getIsAdmin() { return isAdmin; }
+    public void setIsAdmin(Integer isAdmin) { this.isAdmin = isAdmin; }
+
+    /** 以 app_user.is_admin 为准；未查出该列时视为非管理员。 */
+    public boolean isAdministrator() {
+        return isAdmin != null && isAdmin == 1;
+    }
 
     public boolean isPasswordChangeRequired() {
         return mustChangePassword == null ? mantianxingUserId != null : mustChangePassword == 1;
