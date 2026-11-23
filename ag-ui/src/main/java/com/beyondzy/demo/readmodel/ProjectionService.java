@@ -2,7 +2,7 @@ package com.beyondzy.demo.readmodel;
 
 import com.beyondzy.demo.contract.UserContext;
 import com.beyondzy.demo.contract.ThreadView;
-import com.beyondzy.demo.hitl.HitlService;
+import com.beyondzy.demo.session.HitlService;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.session.ChatSessions;
 import io.agentscope.core.session.SessionEvent;

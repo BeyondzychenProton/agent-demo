@@ -11,6 +11,10 @@ import javax.sql.DataSource;
 public final class SkillJdbc {
     public static final String SKILL_TABLE = "agentscope_skills";
     public static final String RESOURCE_TABLE = "agentscope_skill_resources";
+    /** 框架用表名拼出的 source。管理端插入时写这个值，之后不改，也不表示创建人。 */
+    public static final String SOURCE = "jdbc_agentscope_skills";
+    /** 当前唯一会跑聊天的智能体。展示名是「海卓大脑办公助手」。 */
+    public static final String SESSION_AGENT = "session-chat";
 
     private SkillJdbc() {}
 

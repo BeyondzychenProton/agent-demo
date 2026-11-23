@@ -90,7 +90,7 @@ function PasswordChange({ required }: {
   </form>;
 
   if (required) {
-    return <main className="flex min-h-screen items-center justify-center p-6">
+    return <main className="auth-screen flex min-h-screen items-center justify-center p-6">
       <div className="glass-panel w-full max-w-md rounded-3xl p-8">{form}</div>
     </main>;
   }

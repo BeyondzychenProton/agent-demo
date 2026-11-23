@@ -5,10 +5,18 @@ import com.beyondzy.demo.domain.directory.DirectoryDepartmentBean;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 /** 部门通讯录 Mapper。 */
 @Mapper
 public interface DirectoryDepartmentMapper extends BaseMapper<DirectoryDepartmentBean> {
+    @Select("""
+            SELECT source_id, status, is_deleted
+            FROM app_directory_department
+            WHERE source_id = #{id}
+            """)
+    DirectoryDepartmentBean findSkillViewer(@Param("id") long id);
+
     /** 原子写入更新版本的数据，最后更新版本列，让所有字段都与旧版本比较。 */
     @Insert("""
             INSERT INTO app_directory_department

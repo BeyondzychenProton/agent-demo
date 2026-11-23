@@ -2,7 +2,6 @@ package com.beyondzy.demo.session;
 
 import static org.junit.jupiter.api.Assertions.*;
 import com.beyondzy.demo.contract.ThreadView;
-import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.model.*;
 import io.agentscope.core.message.*;
 import io.agentscope.core.event.ConfirmResult;

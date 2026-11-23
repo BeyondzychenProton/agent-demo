@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { apiFetch } from "@/auth/api";
 
-type Department = { id: string; parentId: string | null; name: string; status: string };
-type Member = {
+export type Department = { id: string; parentId: string | null; name: string; status: string };
+export type Member = {
   id: string;
   departmentId: string | null;
   account: string;
@@ -11,7 +11,7 @@ type Member = {
   email: string | null;
   status: string;
 };
-type Directory = { departments: Department[]; users: Member[] };
+export type Directory = { departments: Department[]; users: Member[] };
 
 const PAGE_SIZE = 6;
 
@@ -59,7 +59,7 @@ function indexDirectory({ departments, users }: Directory) {
   return { byId, tree, membersByDepartment };
 }
 
-export function OrganizationDirectory() {
+export function OrganizationDirectory({ onDirectory, onMember, onDepartment }: { onDirectory?: (value: Directory) => void; onMember?: (member: Member) => void; onDepartment?: (id: string) => void }) {
   const [result, setResult] = useState<Directory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -81,6 +81,7 @@ export function OrganizationDirectory() {
       .then(directory => {
         if (controller.signal.aborted) return;
         setResult(directory);
+        onDirectory?.(directory);
         setDepartmentId(id => directory.departments.some(department => department.id === id) ? id : "");
         setPage(0);
         setLoading(false);
@@ -109,6 +110,7 @@ export function OrganizationDirectory() {
 
   function selectDepartment(id: string) {
     setDepartmentId(id);
+    onDepartment?.(id);
     setPage(0);
   }
 
@@ -150,14 +152,14 @@ export function OrganizationDirectory() {
         <div className="admin-table-title">{directory.byId.get(departmentId)?.name ?? "全部成员"}</div>
         <div className="admin-table-scroll">
           <table>
-            <thead><tr><th>成员 / 用户 ID</th><th>部门</th><th>账号 / 邮箱</th><th>满天星账号状态</th></tr></thead>
+            <thead><tr><th>成员 / 用户 ID</th><th>部门</th><th>账号 / 邮箱</th><th>满天星账号状态</th><th>操作</th></tr></thead>
             <tbody>{filtered.slice(first, first + PAGE_SIZE).map(member => <tr key={member.id}>
               <td><strong>{member.name}</strong><small>{member.id}</small></td>
               <td>{member.departmentId ? directory.byId.get(member.departmentId)?.name ?? "部门暂不可用" : "未分配"}</td>
               <td><strong>{member.account}</strong>{member.email && <small>{member.email}</small>}</td>
               <td><span className={member.status === "0" ? "admin-green" : "admin-muted"}>
                 {member.status === "0" ? "已启用" : "已停用"}
-              </span></td>
+              </span></td><td><button className="admin-link" onClick={() => onMember?.(member)}>个人权限</button></td>
             </tr>)}</tbody>
           </table>
           {!filtered.length && <p className="admin-empty">{!result.users.length ? "暂无同步成员" : "没有找到匹配的成员"}</p>}

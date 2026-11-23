@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Activity, ArrowLeft, Blocks, Bot, Box, ChevronRight, ClipboardList, Info, LayoutDashboard, Settings, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { AuthUser } from "@/auth/api";
 import "./admin.css";
-import { OrganizationDirectory } from "./OrganizationDirectory";
+import { UserPermissions } from "./UserPermissions";
 import { CapabilityManagement } from "./CapabilityManagement";
 
 const menus = [
@@ -22,8 +22,8 @@ export function AdminPage({ user, onBack }: { user: AuthUser; onBack: () => void
       <div className="admin-sidebar-footer"><div className="admin-sidebar-user"><span>{user.name?.slice(0,1) || "管"}</span><div><strong>{user.name || "管理员"}</strong><small>平台管理员</small></div></div><button onClick={() => navigate(onBack)} title="返回会话"><ArrowLeft size={15}/><span>返回会话</span></button></div>
     </aside>
     <div className="admin-main"><header className="admin-topbar"><div>能力与连接 <ChevronRight size={13}/> <span>{page}</span></div></header>
-      <div className="admin-scroll"><div className="admin-content"><div className="admin-heading"><h1>{page}</h1><p>{page === "用户与权限" ? "查看满天星同步的组织架构与成员。" : descriptions[page]}</p></div>
-      {page === "用户与权限" ? <OrganizationDirectory/> : page === "Skills 管理" || page === "MCP 管理" || page === "Agent 管理" ? <CapabilityManagement key={page} kind={page}/> : <MockSection page={page}/>}
+      <div className="admin-scroll"><div className="admin-content"><div className="admin-heading"><h1>{page}</h1><p>{page === "用户与权限" ? "管理组织成员和 Skill 授权，支持按部门统一配置。" : descriptions[page]}</p></div>
+      {page === "用户与权限" ? <UserPermissions/> : page === "Skills 管理" || page === "MCP 管理" || page === "Agent 管理" ? <CapabilityManagement key={page} kind={page}/> : <MockSection page={page}/>}
       </div></div>
     </div>
   </main>;

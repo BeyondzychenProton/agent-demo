@@ -22,7 +22,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (user: AuthUser) => void }
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="auth-screen flex min-h-screen items-center justify-center p-6">
       <form
         onSubmit={(event) => void submit(event)}
         className="glass-panel w-full max-w-md rounded-3xl p-8"

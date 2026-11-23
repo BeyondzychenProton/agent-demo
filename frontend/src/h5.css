@@ -2,6 +2,28 @@ html[data-view="h5"] body {
   min-width: 0;
 }
 
+html[data-view="h5"] input,
+html[data-view="h5"] textarea,
+html[data-view="h5"] select {
+  font-size: 16px;
+}
+
+html[data-view="h5"] .auth-screen {
+  box-sizing: border-box;
+  width: min(100%, 40rem);
+  min-height: var(--h5-viewport-height, 100dvh);
+  margin-inline: auto;
+  padding: max(12vh, calc(24px + env(safe-area-inset-top)))
+    calc(20px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom))
+    calc(20px + env(safe-area-inset-left));
+  align-items: flex-start;
+}
+
+html[data-view="h5"] .auth-screen button[type="submit"] {
+  min-height: 44px;
+}
+
 .h5-shell {
   --primary: #14765f;
   --accent: #eaf6f0;
@@ -32,7 +54,7 @@ html[data-view="h5"] body {
 .h5-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   min-height: 56px;
   padding-inline: 16px;
@@ -41,13 +63,46 @@ html[data-view="h5"] body {
 }
 
 .h5-header h1 {
+  min-width: 0;
+  overflow: hidden;
   font-size: 17px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h5-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.h5-account span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h5-account button {
+  flex-shrink: 0;
+  min-height: 36px;
+  color: var(--primary);
+}
+
+.h5-account button:first-of-type {
+  margin-left: auto;
 }
 
 .h5-header nav {
   display: flex;
   gap: 4px;
+  margin-left: auto;
 }
 
 .h5-header button {

@@ -13,6 +13,7 @@ import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
 import javax.sql.DataSource;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
+import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
@@ -41,10 +42,10 @@ public class ChatConfiguration {
         return SkillJdbc.dialect(dataSource);
     }
 
-    /** 默认可写。管理接口用它保存技能；模型侧不打开 skill_manage。 */
+    /** 只读。管理端用自己的 SQL 写技能，这里的 save 不会改行。 */
     @Bean(destroyMethod = "close")
     AgentSkillRepository skillRepository(DataSource dataSource, AbstractJdbcDialect skillDialect) {
-        return new JdbcAgentSkillRepository(dataSource, skillDialect);
+        return new JdbcAgentSkillRepository(dataSource, skillDialect, false);
     }
 
     @Bean(destroyMethod = "close")
@@ -63,6 +64,7 @@ public class ChatConfiguration {
             @Value("${mcp.secret:}") String mcpSecret,
             @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
             AgentSkillRepository skillRepository,
+            SkillVisibilityService skillVisibility,
             LangfuseTracing langfuseTracing) {
         // 真实模型必须提供 API key，缺失直接报错，不静默降级
         if (key.isBlank()) {
@@ -91,7 +93,7 @@ public class ChatConfiguration {
         // 启动时会扫描已有用户目录并恢复调度；请求期 userId 仍由 UserContext 覆盖。
         return new ChatSessions(Path.of(workspace), model,
                 null, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers,
-                skillRepository, users, langfuseTracing.middlewares());
+                skillRepository, users, langfuseTracing.middlewares(), skillVisibility);
     }
 
     private static String phoneOf(UserService users, String userId) {

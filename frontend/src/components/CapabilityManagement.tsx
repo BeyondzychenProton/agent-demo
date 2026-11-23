@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Search, Plus, X, Info, ChevronDown, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { AgentSkillBinding } from "./AgentSkillBinding";
+import { SkillAdmin } from "./SkillAdmin";
 
 type Kind = "Skills 管理" | "MCP 管理" | "Agent 管理";
 type Tool = { name: string; enabled: boolean };
@@ -20,6 +22,11 @@ function saveDb(db:Database) { try { sessionStorage.setItem(storageKey,JSON.stri
 function Button({children,onClick,primary=false,disabled=false}:{children:React.ReactNode;onClick:()=>void;primary?:boolean;disabled?:boolean}) { return <button type="button" className={primary?"cap-primary":"cap-secondary"} onClick={onClick} disabled={disabled}>{children}</button>; }
 function Modal({title,children,onClose,footer}:{title:string;children:React.ReactNode;onClose:()=>void;footer:React.ReactNode}) { return <div className="cap-modal-overlay" onClick={onClose}><div className="cap-modal cap-modal-wide" role="dialog" aria-modal="true" aria-label={title} onClick={e=>e.stopPropagation()}><div className="cap-modal-head"><h2>{title}</h2><button aria-label="关闭" onClick={onClose}><X size={18}/></button></div><div className="cap-modal-body">{children}</div><div className="cap-modal-actions">{footer}</div></div></div>; }
 export function CapabilityManagement({kind}:{kind:Kind}) {
+ if (kind === "Skills 管理") return <SkillAdmin />;
+ if (kind === "Agent 管理") return <AgentSkillBinding />;
+ return <MockCapabilities kind={kind} />;
+}
+function MockCapabilities({kind}:{kind:Kind}) {
  const [db,setDb]=useState(load); const [query,setQuery]=useState(""); const [filter,setFilter]=useState("全部"); const [category,setCategory]=useState("全部分类");
  const [draft,setDraft]=useState<Item|null>(null); const [original,setOriginal]=useState(""); const [creating,setCreating]=useState(false); const [tab,setTab]=useState("基本信息"); const [step,setStep]=useState(0); const [file,setFile]=useState(""); const [connection,setConnection]=useState<"idle"|"success"|"failed">("idle"); const [notice,setNotice]=useState("");
  const [dialog,setDialog]=useState<"toggle"|"tool"|"leave"|"publish"|"source"|"trace"|"result"|null>(null); const [target,setTarget]=useState<Item|null>(null); const [toolIndex,setToolIndex]=useState(-1);

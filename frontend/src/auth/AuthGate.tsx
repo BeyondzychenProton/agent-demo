@@ -44,7 +44,7 @@ export function AuthGate({ children, demoLogin }: {
   };
 
   if (state.status === "loading") {
-    return <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">正在检查登录状态…</main>;
+    return <main className="auth-screen flex min-h-screen items-center justify-center text-sm text-muted-foreground">正在检查登录状态…</main>;
   }
   if (state.status === "anonymous") {
     if (demoLogin) return (

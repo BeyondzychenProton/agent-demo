@@ -189,6 +189,47 @@ public final class SkillDocuments {
         }
     }
 
+    /**
+     * 把表单上的名称、用途说明和纯正文拼成框架要读的 SKILL.md。
+     * 用途说明里的引号和反斜杠按 YAML 双引号转义，换行改成空格。
+     */
+    public static String compose(String name, String description, String body) {
+        if (name == null || !NAME.matcher(name).matches()) fail(400, "技能名不合法");
+        if (description == null || description.isBlank()) fail(400, "用途说明不能为空");
+        String content = body == null ? "" : body;
+        String markdown = "---\n"
+                + "name: " + yamlDoubleQuoted(name) + "\n"
+                + "description: " + yamlDoubleQuoted(description) + "\n"
+                + "---\n\n"
+                + content;
+        if (markdown.getBytes(StandardCharsets.UTF_8).length > SKILL_MD_LIMIT) fail(400, "SKILL.md 超过 256KB");
+        return markdown;
+    }
+
+    /** 详情回显用。剥掉 frontmatter 和它后面那一个空行，不把 frontmatter 还给表单。 */
+    public static String body(String skillContent) {
+        if (skillContent == null || skillContent.isBlank()) return "";
+        if (!skillContent.startsWith("---")) return skillContent;
+        int close = skillContent.indexOf("\n---", 3);
+        if (close < 0) return skillContent;
+        int index = close + 4;
+        if (index < skillContent.length() && skillContent.charAt(index) == '\r') index++;
+        if (index < skillContent.length() && skillContent.charAt(index) == '\n') index++;
+        if (index < skillContent.length() && (skillContent.charAt(index) == '\n' || skillContent.charAt(index) == '\r')) {
+            if (skillContent.charAt(index) == '\r') index++;
+            if (index < skillContent.length() && skillContent.charAt(index) == '\n') index++;
+        }
+        return skillContent.substring(index);
+    }
+
+    /** 参考资料路径：相对路径，不能是 SKILL.md，也不能跳出 references/ 或 scripts/。 */
+    public static String resourcePath(String raw) {
+        String path = normalize(raw);
+        if ("SKILL.md".equals(path)) fail(400, "参考资料不能是 SKILL.md");
+        kind(path);
+        return path;
+    }
+
     public static SkillFileKind kind(String relativePath) {
         if ("SKILL.md".equals(relativePath)) return SkillFileKind.SKILL;
         if (relativePath.startsWith("references/") && relativePath.length() > "references/".length())
@@ -196,6 +237,20 @@ public final class SkillDocuments {
         if (relativePath.startsWith("scripts/") && relativePath.length() > "scripts/".length())
             return SkillFileKind.SCRIPT;
         return fail(400, "不接受的技能文件: " + relativePath);
+    }
+
+    /** YAML 双引号标量。换行先折成空格，再转义反斜杠和引号。 */
+    private static String yamlDoubleQuoted(String value) {
+        String flat = value.replace("\r\n", "\n").replace('\r', '\n').replace('\n', ' ');
+        StringBuilder out = new StringBuilder(flat.length() + 2);
+        out.append('"');
+        for (int i = 0; i < flat.length(); i++) {
+            char c = flat.charAt(i);
+            if (c == '\\' || c == '"') out.append('\\');
+            out.append(c);
+        }
+        out.append('"');
+        return out.toString();
     }
 
     private static String requiredText(Object value, String field) {

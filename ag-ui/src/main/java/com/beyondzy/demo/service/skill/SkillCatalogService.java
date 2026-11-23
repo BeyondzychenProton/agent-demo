@@ -1,6 +1,6 @@
 package com.beyondzy.demo.service.skill;
 
-/** 技能目录的读写。写入只经 JDBC 技能库，列表不加载正文。 */
+/** 旧技能目录。写方法已停用，管理端改走 SkillAdminService。 */
 public interface SkillCatalogService {
     SkillView saveMarkdown(byte[] body, boolean overwrite);
 

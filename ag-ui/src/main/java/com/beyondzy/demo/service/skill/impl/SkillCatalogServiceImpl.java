@@ -15,9 +15,10 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
-/** 技能目录。保存和删除只调用 JDBC 技能库，保证和 Agent 读到的是同一份。 */
+/** 旧技能目录。保存和删除不再调用仓库，避免只读仓库静默丢弃写入。 */
 @Service
 public class SkillCatalogServiceImpl implements SkillCatalogService {
+    private static final String RETIRED = "写入口已收到管理端";
     private final AgentSkillRepository repository;
     private final SkillMapper skills;
     private final SkillResourceMapper resources;
@@ -31,23 +32,17 @@ public class SkillCatalogServiceImpl implements SkillCatalogService {
 
     @Override
     public SkillView saveMarkdown(byte[] body, boolean overwrite) {
-        SkillDocuments.Parsed parsed = SkillDocuments.markdown(body);
-        store(parsed, overwrite);
-        return detail(parsed.name(), false);
+        throw new SkillException(410, RETIRED);
     }
 
     @Override
     public SkillView saveArchive(byte[] zip, boolean overwrite) {
-        SkillDocuments.Parsed parsed = SkillDocuments.archive(zip);
-        store(parsed, overwrite);
-        return detail(parsed.name(), false);
+        throw new SkillException(410, RETIRED);
     }
 
     @Override
     public SkillView saveFiles(List<SkillUpload> files, boolean overwrite) {
-        SkillDocuments.Parsed parsed = SkillDocuments.files(files);
-        store(parsed, overwrite);
-        return detail(parsed.name(), false);
+        throw new SkillException(410, RETIRED);
     }
 
     @Override
@@ -82,29 +77,7 @@ public class SkillCatalogServiceImpl implements SkillCatalogService {
 
     @Override
     public void delete(String name) {
-        requireRow(name);
-        repository.delete(name);
-    }
-
-    void store(SkillDocuments.Parsed parsed, boolean overwrite) {
-        AgentSkill skill = AgentSkill.builder()
-                .name(parsed.name())
-                .description(parsed.description())
-                .skillContent(parsed.skillContent())
-                .metadata(parsed.metadata())
-                .resources(parsed.resources())
-                .source(repository.getSource())
-                .build();
-        try {
-            repository.save(List.of(skill), overwrite);
-        } catch (IllegalStateException error) {
-            if (error.getMessage() != null && error.getMessage().contains("already exist")) {
-                throw new SkillException(409, "技能已存在: " + parsed.name());
-            }
-            throw error;
-        } catch (IllegalArgumentException error) {
-            throw new SkillException(400, error.getMessage());
-        }
+        throw new SkillException(410, RETIRED);
     }
 
     private SkillBean requireRow(String name) {

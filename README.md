@@ -28,7 +28,7 @@
 ### 后端阅读顺序
 
 1. `ag-ui/src/main/java/com/beyondzy/demo/session/ChatSessions.java`：看 `approvalPermissions` 确定审批触发规则，接着看 `answer`、`view` 与 `interactionRevision` 的接入关系。
-2. `ag-ui/src/main/java/com/beyondzy/demo/hitl/HitlService.java`：沿 `answer → interactions → project → decorate` 理解决定接收、双日志恢复和卡片组装；`cancel` 是等待期间取消的独立分支。
+2. `ag-ui/src/main/java/com/beyondzy/demo/session/HitlService.java`：沿 `answer → interactions → project → decorate` 理解决定接收、双日志恢复和卡片组装；`cancel` 是等待期间取消的独立分支。
 3. `ag-ui/src/main/java/com/beyondzy/demo/web/chat/ChatController.java`：查看审批与取消接口、冲突响应，以及不复用执行 cursor 的变化通知。
 4. `ag-ui/src/main/java/com/beyondzy/demo/contract/ThreadView.java`：查看 `HitlBlock` 字段注释，区分已接收的决定、框架处理状态与后续执行。
 5. `ag-ui/src/test/java/com/beyondzy/demo/session/HitlIntegrationTest.java`：使用不联网的脚本模型，驱动真实 Harness、SQLite 和文件工具；恢复点与并发场景在测试中明确构造。

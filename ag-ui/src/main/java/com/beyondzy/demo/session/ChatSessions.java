@@ -8,7 +8,6 @@ import com.beyondzy.demo.contract.UserContext;
 import com.beyondzy.demo.mcp.McpBoundTool;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolMount;
-import com.beyondzy.demo.hitl.HitlService;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionRule;
@@ -34,7 +33,10 @@ import com.beyondzy.demo.readmodel.ThreadViewAssembler;
 import com.beyondzy.demo.tools.ClockTools;
 import com.beyondzy.demo.tools.CurrentUserTool;
 import com.beyondzy.demo.service.user.UserService;
+import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import io.agentscope.core.middleware.MiddlewareBase;
+import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -53,9 +55,10 @@ import org.slf4j.LoggerFactory;
  */
 public final class ChatSessions implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(ChatSessions.class);
-    private static final String AGENT = "session-chat";
+    private static final String AGENT = SkillJdbc.SESSION_AGENT;
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
+    private final SkillVisibilityService skillVisibility;
     private final List<String> mcpToolNames;
     private final SessionLogStore store;
     private final UserWorkspaceLog userLog;
@@ -155,7 +158,7 @@ public final class ChatSessions implements AutoCloseable {
             AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository, UserService users) {
         this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
-                agentSessionService, mcpServers, skillRepository, users, null);
+                agentSessionService, mcpServers, skillRepository, users, null, null);
     }
 
     public ChatSessions(Path workspace, Model model,
@@ -164,8 +167,19 @@ public final class ChatSessions implements AutoCloseable {
             AgentSessionService agentSessionService, List<McpServer> mcpServers,
             AgentSkillRepository skillRepository, UserService users,
             List<MiddlewareBase> tracingMiddlewares) {
+        this(workspace, model, sessionLogStore, userId, displayIndex, readModelPersistence,
+                agentSessionService, mcpServers, skillRepository, users, tracingMiddlewares, null);
+    }
+
+    public ChatSessions(Path workspace, Model model,
+            SessionLogStore sessionLogStore, String userId,
+            DisplayIndexService displayIndex, ReadModelPersistenceService readModelPersistence,
+            AgentSessionService agentSessionService, List<McpServer> mcpServers,
+            AgentSkillRepository skillRepository, UserService users,
+            List<MiddlewareBase> tracingMiddlewares, SkillVisibilityService skillVisibility) {
         if (readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要读模型持久化服务");
+        this.skillVisibility = skillVisibility;
         modelName = model.getModelName();
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
@@ -222,9 +236,9 @@ public final class ChatSessions implements AutoCloseable {
                         .disableWorkspaceContext()
                         .disableAtPathExpansion()
                         .maxIters(mcpToolsMounted ? 16 : 8);
-        // 管理接口与这里共用同一个 JDBC 仓库，不打开模型侧的 skill_manage。
+        // 仓库只读。装配期放空过滤器：这个实例被所有用户复用，可见范围要等每一轮再算。
         if (skillRepository != null) {
-            agentBuilder.skillRepository(skillRepository);
+            agentBuilder.skillRepository(skillRepository).skillFilter(SkillFilter.none());
         }
         // 与日志后端共用同一份按用户分桶的 Filesystem，避免日志和工作区文件各写一处。
         if (userLog != null) {
@@ -312,9 +326,23 @@ public final class ChatSessions implements AutoCloseable {
         return UserContext.current().orElse(defaultUserId);
     }
 
-    /** 构造框架运行上下文：userId 取当前请求用户，sessionId 原样使用会话 id。 */
+    /**
+     * 构造这一轮的运行上下文。过滤器是「绑定 ∩ 启用 ∩ 当前用户可见」的整份替换。
+     * 名单为空时用 none()，避免漏放时退回装配期以外的技能。
+     */
     private RuntimeContext context(String session) {
-        return RuntimeContext.builder().userId(activeUserId()).sessionId(id(session)).build();
+        String userId = activeUserId();
+        List<String> names = skillVisibility == null
+                ? List.of()
+                : skillVisibility.namesFor(AGENT, userId);
+        SkillFilter turn = names.isEmpty()
+                ? SkillFilter.none()
+                : SkillFilter.only(names.toArray(String[]::new));
+        return RuntimeContext.builder()
+                .userId(userId)
+                .sessionId(id(session))
+                .put(SkillFilter.class, turn)
+                .build();
     }
 
     /**

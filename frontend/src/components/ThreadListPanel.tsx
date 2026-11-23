@@ -91,9 +91,12 @@ export function ThreadListPanel({ user, onLogout, onAdmin, hidden = false, onCol
       <header className="h5-header">
         <button type="button" onClick={onCollapse}><ChevronLeft size={18} aria-hidden />返回</button>
         <h1>历史对话</h1>
+      </header>
+      <div className="h5-account">
+        {user && <span>{accountLabel(user)}</span>}
         {user && <ChangePasswordButton/>}
         {onLogout && <button type="button" onClick={onLogout}>退出登录</button>}
-      </header>
+      </div>
       <label className="h5-search">
         <Search size={18} aria-hidden />
         <input type="search" aria-label="搜索已加载对话" placeholder="搜索已加载对话" value={query}

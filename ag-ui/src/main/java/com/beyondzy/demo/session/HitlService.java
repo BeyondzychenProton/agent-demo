@@ -1,4 +1,4 @@
-package com.beyondzy.demo.hitl;
+package com.beyondzy.demo.session;
 
 import com.beyondzy.demo.contract.ThreadView;
 import io.agentscope.core.message.Msg;

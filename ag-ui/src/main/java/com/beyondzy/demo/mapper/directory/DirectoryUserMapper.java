@@ -5,10 +5,18 @@ import com.beyondzy.demo.domain.directory.DirectoryUserBean;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 /** 用户通讯录 Mapper。 */
 @Mapper
 public interface DirectoryUserMapper extends BaseMapper<DirectoryUserBean> {
+    @Select("""
+            SELECT source_id, department_id, status, is_deleted
+            FROM app_directory_user
+            WHERE source_id = #{id}
+            """)
+    DirectoryUserBean findSkillViewer(@Param("id") long id);
+
     /** 原子写入更新版本的数据，最后更新版本列，让所有字段都与旧版本比较。 */
     @Insert("""
             INSERT INTO app_directory_user
