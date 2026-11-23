@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { FileText, PauseCircle, Sparkles, Terminal, Wrench } from "lucide-react";
+import { PauseCircle, Sparkles, Terminal, Wrench } from "lucide-react";
 
 import { DisclosureRow } from "@/components/chat/DisclosureRow";
 import { TextShimmer } from "@/components/chat/TextShimmer";
@@ -45,8 +45,7 @@ function ToolProcessRow({ card }: { card: ToolCardViewModel }) {
     : card.result !== undefined && card.result !== null
       ? pretty(card.result)
       : null;
-  const hasOrder = card.name === "lookup_order" && card.result != null;
-  const expandable = !preparing && (inputRaw !== null || outputText !== null || hasOrder || !!card.diffStats);
+  const expandable = !preparing && (inputRaw !== null || outputText !== null || !!card.diffStats);
   const [expanded, setExpanded] = useState(false);
   const open = expanded && expandable;
   const durationLabel = formatDuration(card.durationMs);
@@ -103,7 +102,7 @@ function ToolProcessRow({ card }: { card: ToolCardViewModel }) {
           {card.progress ? (
             <p className="mb-1 pl-1 text-xs leading-5 text-muted-foreground">{card.progress}</p>
           ) : null}
-          {(inputRaw !== null || outputText !== null || hasOrder) ? (
+          {(inputRaw !== null || outputText !== null) ? (
             <div className="dsh-io-card">
               {inputRaw !== null ? (
                 <div className="dsh-io-section">
@@ -111,24 +110,13 @@ function ToolProcessRow({ card }: { card: ToolCardViewModel }) {
                   <span className="dsh-io-text">{inputRaw}</span>
                 </div>
               ) : null}
-              {inputRaw !== null && (outputText !== null || hasOrder) ? (
+              {inputRaw !== null && outputText !== null ? (
                 <span className="dsh-io-divider" aria-hidden />
               ) : null}
-              {(outputText !== null || hasOrder) ? (
+              {outputText !== null ? (
                 <div className="dsh-io-section">
                   <span className="dsh-io-label">输出</span>
-                  <div className="min-w-0">
-                    {hasOrder ? <OrderResult result={card.result} /> : null}
-                    {!hasOrder && outputText !== null ? (
-                      <span className="dsh-io-text" data-error={failed || undefined}>{outputText}</span>
-                    ) : null}
-                    {card.name === "write_note" && card.result ? (
-                      <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <FileText className="size-3.5" />
-                        文件卡片：{pathOf(card.result)}
-                      </p>
-                    ) : null}
-                  </div>
+                  <span className="dsh-io-text" data-error={failed || undefined}>{outputText}</span>
                 </div>
               ) : null}
             </div>
@@ -159,7 +147,7 @@ function stateStatus(state: "preparing" | "running" | "error" | "stopped" | "ok"
 function toolTitle(card: ToolCardViewModel): string {
   if (card.name === "web_search") return "网页搜索";
   if (card.name === "web_fetch" || card.name === "fetch_url") return "网页获取";
-  if (/bash|shell|command|pwsh|exec/i.test(card.name) || card.name === "write_note") return "运行命令";
+  if (/bash|shell|command|pwsh|exec/i.test(card.name)) return "运行命令";
   if (/fetch|web|http/i.test(card.name)) return "网页获取";
   if (/search|grep|glob/i.test(card.name)) return "搜索";
   return "工具调用";
@@ -186,76 +174,6 @@ function toolSummary(card: ToolCardViewModel): string {
 function firstLine(text: string): string {
   const newline = text.indexOf("\n");
   return (newline === -1 ? text : text.slice(0, newline)).trim();
-}
-
-function OrderResult({ result }: { result: unknown }) {
-  const order = objectOf(result);
-  if (!order) return <span className="dsh-io-text">{pretty(result)}</span>;
-  const items = Array.isArray(order.items) ? order.items : [];
-  return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs font-semibold text-emerald-800">
-          {String(order.orderId ?? "—")}
-        </span>
-        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-800">
-          {String(order.status ?? "未知")}
-        </span>
-      </div>
-      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-        <Row label="客户" value={order.customer} />
-        <Row label="承运" value={order.carrier} />
-        <Row label="运单" value={order.trackingNo} />
-        <Row label="预计" value={order.eta} />
-        <Row label="金额" value={order.total != null ? `¥${order.total}` : undefined} />
-      </dl>
-      {items.length ? (
-        <ul className="mt-2 space-y-1 border-t border-emerald-200 pt-2 text-[11px] text-muted-foreground">
-          {items.map((item, index) => {
-            const line = objectOf(item);
-            return (
-              <li key={index} className="flex justify-between gap-2">
-                <span className="truncate">{String(line?.sku ?? "商品")}</span>
-                <span className="shrink-0 font-mono">×{String(line?.qty ?? 1)}</span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: unknown }) {
-  if (value == null || value === "") return null;
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate font-mono text-foreground/90">{String(value)}</dd>
-    </>
-  );
-}
-
-function objectOf(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function pathOf(value: unknown): string {
-  const object = objectOf(value);
-  return object?.path ? String(object.path) : "—";
 }
 
 function pretty(value: unknown): string {

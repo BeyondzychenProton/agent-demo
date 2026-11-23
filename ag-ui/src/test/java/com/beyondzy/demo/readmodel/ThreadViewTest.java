@@ -3,6 +3,7 @@ package com.beyondzy.demo.readmodel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.beyondzy.demo.contract.ThreadView;
 import io.agentscope.core.message.ToolResultBlock;
@@ -40,7 +41,7 @@ final class ThreadViewTest {
         assertEquals("tool-card", card.kind());
         assertEquals("tc1", card.toolCallId());
         assertEquals("lookup_order", card.name());
-        assertEquals("查询订单 A1001", card.displayTitle());
+        assertEquals("lookup_order", card.displayTitle());
         assertEquals("completed", card.status());
         assertInstanceOf(Map.class, card.result());
         assertEquals("已发货", ((Map<?, ?>) card.result()).get("status"));
@@ -49,7 +50,7 @@ final class ThreadViewTest {
     }
 
     @Test
-    void exposesDiffStatsForFileCard() {
+    void assemblesToolCardWithoutCatalogMetadata() {
         List<SessionEvent> facts =
                 List.of(
                         event(1, "model/chunk", toolChunk("write_note", "{\"path\":\"notes/a.md\"}")),
@@ -70,9 +71,8 @@ final class ThreadViewTest {
                 assertInstanceOf(
                         ThreadView.ToolCardViewModel.class, assemble(facts).view().get(0));
 
-        assertEquals(3, card.diffStats().added());
-        assertEquals(1, card.diffStats().deleted());
-        assertEquals("写入笔记 notes/a.md", card.displayTitle());
+        assertNull(card.diffStats());
+        assertEquals("write_note", card.displayTitle());
     }
 
     private static ThreadView.SnapshotResponse assemble(List<SessionEvent> facts) {

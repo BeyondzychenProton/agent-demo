@@ -202,7 +202,7 @@ com.beyondzy.demo
 | `readmodel/IncrementalEventProjection` | M4 / M5 增量 | committed 事件 → `IncrementalEvent`（card-args/status/result、message-delta、run-finished） |
 | `contract/ThreadView` | 6.1.7 / 6.1.8 契约 | 快照 / 增量 / 卡片 ViewModel 的前端契约 |
 | `support/Payloads` + `support/ContentValues` | 投影辅助 | 统一解码 payload、取文本、解析 JSON、归一卡片状态 |
-| `tools/*` | M7 ToolRegistry | 三个演示工具 + `ToolCatalog` 折叠标题/定制卡片标记 + 行级 diff |
+| `tools/*` | M7 ToolRegistry | 当前会话工具（时钟、当前用户）；工具卡片标题直接使用工具名 |
 
 前端文件（`frontend/`，三栏工作区：会话列表 / live A 聊天窗 / history B 服务端视图）：
 
@@ -211,7 +211,7 @@ com.beyondzy.demo
 | `src/main.tsx` | 精简 `CopilotKit` 装配：`runtimeUrl=/agui/run`、`useSingleEndpoint=false`、agent=`chat` |
 | `src/App.tsx` | CopilotKit输入、统一分页消息、待答入口和按需诊断面板 |
 | `src/types/chat.ts` | 6.1.8 TS 契约 + `upsertChatItem` 稳定键归并 |
-| `src/components/ToolCardView.tsx` | 统一卡片组件：live/snapshot 共用，订单子视图 + diffStats + HITL 操作与处理状态 |
+| `src/components/ToolCardView.tsx` | 统一卡片组件：live/snapshot 共用，输入输出与状态展示 |
 | `src/components/WindowedTranscript.tsx` | 当前页面的窗口化消息、卡片及长内容按需读取 |
 | `src/components/ThreadListPanel.tsx` | `useThreads` 会话列表：新建/切换/刷新（归档/删除为回显 noop） |
 | `vite.config.ts` | `/agui`、`/api` 代理到 `127.0.0.1:8087`，dev 端口 5173 |

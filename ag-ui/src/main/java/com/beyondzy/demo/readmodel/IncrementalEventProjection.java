@@ -3,7 +3,6 @@ package com.beyondzy.demo.readmodel;
 import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.support.ContentValues;
 import com.beyondzy.demo.support.Payloads;
-import com.beyondzy.demo.tools.ToolCatalog;
 import io.agentscope.core.agent.accumulator.ToolCallsAccumulator;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.Msg;
@@ -270,15 +269,13 @@ public final class IncrementalEventProjection {
 
     private ThreadView.CardArgs cardArgs(
             SessionEvent event, String id, CardState state, Object chunk) {
-        Map<String, Object> arguments = ContentValues.asMap(
-                ContentValues.parseJson(state.arguments.toString()));
         return new ThreadView.CardArgs(
                 "card-args",
                 id,
                 event.turnId(),
                 event.executionRunId(),
                 state.name,
-                ToolCatalog.displayTitle(state.name, arguments, 0, 0),
+                state.name,
                 chunk);
     }
 

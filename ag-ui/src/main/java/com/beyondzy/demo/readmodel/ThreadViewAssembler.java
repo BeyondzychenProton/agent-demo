@@ -3,7 +3,6 @@ package com.beyondzy.demo.readmodel;
 import com.beyondzy.demo.contract.ThreadView;
 import com.beyondzy.demo.support.ContentValues;
 import com.beyondzy.demo.support.Payloads;
-import com.beyondzy.demo.tools.ToolCatalog;
 import io.agentscope.core.message.ToolUseBlock;
 
 import java.time.Instant;
@@ -86,19 +85,6 @@ public final class ThreadViewAssembler {
         Object result = ContentValues.parseJson(resultText);
         String status = ContentValues.cardStatus(item.status());
 
-        int added = 0;
-        int deleted = 0;
-        Map<String, Object> resultMap = ContentValues.asMap(result);
-        if (resultMap != null) {
-            added = number(resultMap.get("added"));
-            deleted = number(resultMap.get("deleted"));
-        }
-
-        ThreadView.DiffStats diffStats =
-                ToolCatalog.of(name).fileTool() && (added > 0 || deleted > 0)
-                        ? new ThreadView.DiffStats(added, deleted)
-                        : null;
-
         // 这里只建立执行事实中的基础占位，不开放按钮；HitlService 再合并 Inbox 接收状态。
         // 否则刷新可能把已收下但尚未处理的答复误显示成“仍可审批”。
         ThreadView.HitlBlock hitl = null;
@@ -119,13 +105,13 @@ public final class ThreadViewAssembler {
                 item.turnId(),
                 item.runId(),
                 name,
-                ToolCatalog.displayTitle(name, argumentMap, added, deleted),
+                name,
                 status,
                 arguments,
                 result,
                 "failed".equals(status) ? resultText : null,
                 ContentValues.textOf(item.progress()),
-                diffStats,
+                null,
                 null,
                 hitl,
                 iso(item.startedAt()),
@@ -153,10 +139,6 @@ public final class ThreadViewAssembler {
         }
         return new ThreadView.PendingInteraction(
                 requestId, toolCallId, frame.turnId(), frame.runId(), askPrompt, payload);
-    }
-
-    private static int number(Object value) {
-        return value instanceof Number number ? number.intValue() : 0;
     }
 
     private static String iso(long millis) {

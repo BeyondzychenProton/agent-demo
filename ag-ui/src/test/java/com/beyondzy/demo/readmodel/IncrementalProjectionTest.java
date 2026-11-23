@@ -99,7 +99,7 @@ final class IncrementalProjectionTest {
                                 .findFirst()
                                 .orElseThrow());
         assertEquals("tc1", args.toolCallId());
-        assertEquals("查询订单 A1001", args.displayTitle());
+        assertEquals("lookup_order", args.displayTitle());
         ThreadView.CardResult result =
                 assertInstanceOf(ThreadView.CardResult.class,
                         out.stream()
