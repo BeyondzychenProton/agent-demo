@@ -28,8 +28,8 @@ class AgentSkillBindingTest {
 
             harness.admin.replaceBindings(1, SkillJdbc.SESSION_AGENT, List.of());
             assertEquals(0, harness.bindings());
-            harness.admin.delete("meeting-booking");
-            assertEquals(0, harness.jdbc.queryForObject(
+            assertEquals(409, assertThrows(SkillException.class, () -> harness.admin.delete("meeting-booking")).status());
+            assertEquals(1, harness.jdbc.queryForObject(
                     "SELECT COUNT(*) FROM agentscope_skills WHERE name = 'meeting-booking'", Integer.class));
             assertEquals(404, assertThrows(SkillException.class,
                     () -> harness.admin.replaceBindings(1, "office-assistant", List.of())).status());
@@ -44,14 +44,19 @@ class AgentSkillBindingTest {
             harness.admin.replaceBindings(1, SkillJdbc.SESSION_AGENT, List.of("public-skill", "owner-skill"));
             harness.admin.setEnabled("public-skill", false);
 
-            SkillException disabled = assertThrows(SkillException.class, () -> harness.admin.replaceBindings(
-                    1, SkillJdbc.SESSION_AGENT, List.of("public-skill")));
-            assertEquals(400, disabled.status());
+            harness.admin.replaceBindings(1, SkillJdbc.SESSION_AGENT, List.of("public-skill", "owner-skill"));
             assertEquals(2, harness.bindings());
 
+            create(harness, "unbound-owner", "2", null);
             SkillException hidden = assertThrows(SkillException.class, () -> harness.admin.replaceBindings(
-                    2, SkillJdbc.SESSION_AGENT, List.of("owner-skill")));
+                    2, SkillJdbc.SESSION_AGENT, List.of("unbound-owner")));
             assertEquals(400, hidden.status());
+            assertEquals(2, harness.bindings());
+
+            create(harness, "unbound-disabled", "0", null);
+            harness.admin.setEnabled("unbound-disabled", false);
+            assertEquals(400, assertThrows(SkillException.class, () -> harness.admin.replaceBindings(
+                    1, SkillJdbc.SESSION_AGENT, List.of("public-skill", "owner-skill", "unbound-disabled"))).status());
             assertEquals(2, harness.bindings());
 
             assertEquals(409, assertThrows(SkillException.class, () -> harness.admin.delete("public-skill")).status());

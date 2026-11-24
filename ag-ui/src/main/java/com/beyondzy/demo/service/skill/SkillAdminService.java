@@ -36,4 +36,8 @@ public interface SkillAdminService {
 
     /** 覆盖写。空列表解除全部绑定。新绑定必须启用，并且当前操作人看得见。 */
     void replaceBindings(long operatorId, String agentId, List<String> names);
+
+    void replaceVersionBindings(long operatorId, String agentId, List<Binding> bindings);
+
+    record Binding(String name, String versionId) {}
 }

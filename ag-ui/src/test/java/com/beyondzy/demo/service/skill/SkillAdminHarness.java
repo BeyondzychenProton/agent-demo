@@ -10,11 +10,24 @@ import com.beyondzy.demo.config.skill.SkillGovernanceSchemaRunner;
 import com.beyondzy.demo.config.skill.SkillJdbc;
 import com.beyondzy.demo.mapper.directory.DirectoryDepartmentMapper;
 import com.beyondzy.demo.mapper.directory.DirectoryUserMapper;
+import com.beyondzy.demo.config.SkillImportSchema;
 import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
+import com.beyondzy.demo.mapper.skill.SkillReleaseMapper;
+import com.beyondzy.demo.mapper.skill.SkillManagementMapper;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
+import com.beyondzy.demo.mapper.skill.SkillImportMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionDependencyMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
 import com.beyondzy.demo.mapper.user.UserMapper;
+import com.beyondzy.demo.service.skill.SkillImportService;
+import com.beyondzy.demo.service.skill.SkillVersionService;
 import com.beyondzy.demo.service.skill.impl.SkillAdminServiceImpl;
+import com.beyondzy.demo.service.skill.impl.SkillBaselineMigrator;
+import com.beyondzy.demo.service.skill.impl.SkillImportServiceImpl;
+import com.beyondzy.demo.service.skill.impl.SkillResourceCatalogImpl;
+import com.beyondzy.demo.service.skill.impl.SkillVersionServiceImpl;
 import com.beyondzy.demo.service.skill.impl.SkillVisibilityServiceImpl;
 import io.agentscope.extensions.jdbc.skill.JdbcAgentSkillRepository;
 import javax.sql.DataSource;
@@ -30,6 +43,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 final class SkillAdminHarness implements AutoCloseable {
     final JdbcTemplate jdbc;
     final SkillAdminService admin;
+    final SkillImportService imports;
+    final SkillVersionService versions;
+    final SkillBaselineMigrator baselines;
     final SkillVisibilityService visibility;
     final JdbcAgentSkillRepository repository;
     private final SqlSession session;
@@ -37,11 +53,17 @@ final class SkillAdminHarness implements AutoCloseable {
     private SkillAdminHarness(
             JdbcTemplate jdbc,
             SkillAdminService admin,
+            SkillImportService imports,
+            SkillVersionService versions,
+            SkillBaselineMigrator baselines,
             SkillVisibilityService visibility,
             JdbcAgentSkillRepository repository,
             SqlSession session) {
         this.jdbc = jdbc;
         this.admin = admin;
+        this.imports = imports;
+        this.versions = versions;
+        this.baselines = baselines;
         this.visibility = visibility;
         this.repository = repository;
         this.session = session;
@@ -56,18 +78,46 @@ final class SkillAdminHarness implements AutoCloseable {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         directory(jdbc);
         new SkillGovernanceSchemaRunner(dataSource).ensure();
+        SkillImportSchema.create(dataSource);
         SqlSession session = session(dataSource);
         SkillVisibilityService visibility = new SkillVisibilityServiceImpl(
                 session.getMapper(UserMapper.class),
                 session.getMapper(DirectoryUserMapper.class),
                 session.getMapper(DirectoryDepartmentMapper.class),
                 session.getMapper(AgentSkillMapper.class));
+        SkillBaselineMigrator baselines = new SkillBaselineMigrator(
+                session.getMapper(SkillMapper.class),
+                session.getMapper(SkillResourceMapper.class),
+                session.getMapper(SkillVersionMapper.class),
+                session.getMapper(SkillVersionFileMapper.class),
+                session.getMapper(SkillReleaseMapper.class), session.getMapper(AgentSkillMapper.class));
         SkillAdminService admin = new SkillAdminServiceImpl(
                 session.getMapper(SkillMapper.class),
                 session.getMapper(SkillResourceMapper.class),
                 session.getMapper(AgentSkillMapper.class),
-                visibility);
-        return new SkillAdminHarness(jdbc, admin, visibility, readOnly(dataSource), session);
+                session.getMapper(SkillVersionMapper.class),
+                visibility, baselines, session.getMapper(SkillReleaseMapper.class));
+        SkillResourceCatalogImpl catalog = new SkillResourceCatalogImpl(java.util.List.of());
+        SkillImportService imports = new SkillImportServiceImpl(
+                session.getMapper(SkillImportMapper.class),
+                session.getMapper(SkillMapper.class),
+                session.getMapper(SkillVersionMapper.class),
+                session.getMapper(SkillVersionFileMapper.class),
+                session.getMapper(SkillVersionDependencyMapper.class),
+                visibility,
+                catalog,
+                null);
+        SkillVersionService versions = new SkillVersionServiceImpl(
+                session.getMapper(SkillVersionMapper.class),
+                session.getMapper(SkillVersionFileMapper.class),
+                session.getMapper(SkillVersionDependencyMapper.class),
+                session.getMapper(SkillMapper.class),
+                session.getMapper(SkillResourceMapper.class),
+                visibility,
+                catalog,
+                session.getMapper(SkillReleaseMapper.class), baselines,
+                null);
+        return new SkillAdminHarness(jdbc, admin, imports, versions, baselines, visibility, readOnly(dataSource), session);
     }
 
     void user(long id, Long directoryId, long departmentId, boolean admin) {
@@ -88,6 +138,8 @@ final class SkillAdminHarness implements AutoCloseable {
                 """, id, parentId, name);
     }
 
+    <T> T mapper(Class<T> type) { return session.getMapper(type); }
+
     int bindings() {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM ai_agent_skill", Integer.class);
         return count == null ? 0 : count;
@@ -103,6 +155,7 @@ final class SkillAdminHarness implements AutoCloseable {
         jdbc.execute("""
                 CREATE TABLE app_user (
                     id BIGINT PRIMARY KEY,
+                    name VARCHAR(128) NULL,
                     is_deleted INT NOT NULL DEFAULT 0,
                     is_admin INT NOT NULL DEFAULT 0,
                     mantianxing_user_id BIGINT NULL
@@ -140,6 +193,12 @@ final class SkillAdminHarness implements AutoCloseable {
         configuration.addMapper(SkillMapper.class);
         configuration.addMapper(SkillResourceMapper.class);
         configuration.addMapper(AgentSkillMapper.class);
+        configuration.addMapper(SkillReleaseMapper.class);
+        configuration.addMapper(SkillManagementMapper.class);
+        configuration.addMapper(SkillVersionMapper.class);
+        configuration.addMapper(SkillVersionFileMapper.class);
+        configuration.addMapper(SkillVersionDependencyMapper.class);
+        configuration.addMapper(SkillImportMapper.class);
         configuration.addMapper(UserMapper.class);
         configuration.addMapper(DirectoryUserMapper.class);
         configuration.addMapper(DirectoryDepartmentMapper.class);

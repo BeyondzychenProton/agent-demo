@@ -6,6 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.skill.VersionedSkillRepository;
+import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.contract.UserContext;
 import com.beyondzy.demo.service.readmodel.ReadModelPersistenceService;
 import com.beyondzy.demo.session.ChatSessions;
@@ -97,7 +101,9 @@ class SkillTurnFilterTest {
     private ChatSessions sessions(SkillAdminHarness harness) {
         return new ChatSessions(workspace, new IdleModel(), new EmptyStore(), "1",
                 null, mock(ReadModelPersistenceService.class), null, null,
-                harness.repository, null, null, harness.visibility);
+                new VersionedSkillRepository(harness.repository, harness.mapper(AgentSkillMapper.class),
+                        harness.mapper(SkillVersionMapper.class), harness.mapper(SkillVersionFileMapper.class), harness.visibility),
+                null, null, harness.visibility);
     }
 
     private static List<String> names(SkillAdminHarness harness, String userId) {

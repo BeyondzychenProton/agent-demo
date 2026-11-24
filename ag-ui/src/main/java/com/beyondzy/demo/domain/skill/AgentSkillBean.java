@@ -16,6 +16,7 @@ public class AgentSkillBean extends BaseAuditBean {
     private Long id;
     private String agentId;
     private Long skillId;
+    private Long versionId;
     private Long createdBy;
 
     public Long getId() { return id; }
@@ -24,6 +25,8 @@ public class AgentSkillBean extends BaseAuditBean {
     public void setAgentId(String agentId) { this.agentId = agentId; }
     public Long getSkillId() { return skillId; }
     public void setSkillId(Long skillId) { this.skillId = skillId; }
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
 }

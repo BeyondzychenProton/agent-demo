@@ -37,7 +37,11 @@ public class AgentSkillAdminController {
     @PutMapping("/{agentId}/skills")
     public Mono<Void> replace(@PathVariable String agentId, @RequestBody SaveAgentSkillsRequest request) {
         return SkillAdminAccess.requireAdmin(users)
-                .flatMap(id -> Mono.<Void>fromRunnable(() -> skills.replaceBindings(id, agentId, request.names()))
+                .flatMap(id -> Mono.<Void>fromRunnable(() -> {
+                    if (request.bindings() == null) skills.replaceBindings(id, agentId, request.names());
+                    else skills.replaceVersionBindings(id, agentId, request.bindings().stream()
+                            .map(b -> new SkillAdminService.Binding(b.name(), b.versionId())).toList());
+                })
                         .subscribeOn(Schedulers.boundedElastic()));
     }
 
@@ -47,7 +51,8 @@ public class AgentSkillAdminController {
                 agent.title(),
                 agent.skills().stream()
                         .map(skill -> new AgentSkillResponse.BoundSkill(
-                                skill.name(), skill.description(), skill.status(), skill.visibleScope()))
+                                skill.name(), skill.description(), skill.status(), skill.visibleScope(),
+                                skill.versionId(), skill.platformVersion(), skill.versionNo()))
                         .toList());
     }
 }

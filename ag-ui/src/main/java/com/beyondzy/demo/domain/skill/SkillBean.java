@@ -46,6 +46,8 @@ public class SkillBean {
     /** 是否绑在 session-chat 上，不是表字段。 */
     @TableField(exist = false)
     private Integer bound;
+    @TableField(exist = false)
+    private Long versionId;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -77,4 +79,6 @@ public class SkillBean {
     public void setOwnerDeptName(String ownerDeptName) { this.ownerDeptName = ownerDeptName; }
     public Integer getBound() { return bound; }
     public void setBound(Integer bound) { this.bound = bound; }
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
 }

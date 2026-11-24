@@ -1,78 +1,75 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
 import { apiFetch } from "@/auth/api";
+import { releaseLabel, skillRequest, type BoundSkill } from "./skillManagement";
 
-type Option = { name: string; description: string };
-type Bound = { name: string; description: string; status: string; visibleScope: string };
-
+type Version = { id: string; platformVersion: string | null; versionNo: string };
+type Option = { name: string; description: string; currentVersionId: string | null; versions: Version[] };
 const AGENT = "session-chat";
-
-async function readError(response: Response) {
-  try {
-    const body = await response.json() as { error?: string };
-    return body.error || `请求失败（${response.status}）`;
-  } catch {
-    return `请求失败（${response.status}）`;
-  }
-}
 
 export function AgentSkillBinding() {
   const [options, setOptions] = useState<Option[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [held, setHeld] = useState<Bound[]>([]);
+  const [held, setHeld] = useState<BoundSkill[]>([]);
+  const [selected, setSelected] = useState<Record<string, string | null>>({});
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
-
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
   async function load() {
     setLoading(true);
-    setNotice("");
     try {
-      const [optionResponse, agentResponse] = await Promise.all([
-        apiFetch("/api/admin/skills/options"),
-        apiFetch(`/api/admin/agents/${AGENT}`),
+      const [available, agent] = await Promise.all([
+        skillRequest<Option[]>("/api/admin/skills/options"),
+        skillRequest<{ skills: BoundSkill[] }>(`/api/admin/agents/${AGENT}`),
       ]);
-      if (!optionResponse.ok) throw new Error(await readError(optionResponse));
-      if (!agentResponse.ok) throw new Error(await readError(agentResponse));
-      const available = await optionResponse.json() as Option[];
-      const agent = await agentResponse.json() as { skills: Bound[] };
-      const names = new Set(available.map(item => item.name));
-      setOptions(available);
-      setSelected(agent.skills.filter(item => names.has(item.name)).map(item => item.name));
-      setHeld(agent.skills.filter(item => !names.has(item.name)));
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "绑定加载失败");
-    } finally {
-      setLoading(false);
-    }
+      setOptions(available); setHeld(agent.skills);
+      setSelected(Object.fromEntries(agent.skills.map(item => [item.name, item.versionId])));
+      setReady(true);
+      return true;
+    } catch (error) { setReady(false); setNotice(error instanceof Error ? error.message : "绑定加载失败"); return false; }
+    finally { setLoading(false); }
   }
-
   useEffect(() => { void load(); }, []);
-
   async function save() {
-    const response = await apiFetch(`/api/admin/agents/${AGENT}/skills`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ names: selected }),
-    });
-    if (!response.ok) { setNotice(await readError(response)); return; }
-    setNotice("绑定已保存");
-    await load();
+    setBusy(true); setNotice("");
+    try {
+      const response = await apiFetch(`/api/admin/agents/${AGENT}/skills`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bindings: Object.entries(selected).map(([name, versionId]) => ({ name, versionId })) }),
+      });
+      if (!response.ok) { const body = await response.json() as { error?: string }; throw new Error(body.error || "绑定保存失败"); }
+      if (await load()) setNotice("固定版本已保存，后续新轮次使用所选版本。已开始的轮次保持原内容。");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "绑定保存失败"); }
+    finally { setBusy(false); }
   }
-
-  function toggle(name: string) {
-    setSelected(current => current.includes(name) ? current.filter(item => item !== name) : [...current, name]);
-  }
-
+  const rows = [...options, ...held.filter(item => !options.some(option => option.name === item.name))
+    .map(item => ({ name: item.name, description: item.description, currentVersionId: null, versions: [] }))];
   return <div className="capability">
-    <div className="capability-actions"><button className="cap-primary" type="button" onClick={() => void save()} disabled={loading}>保存绑定</button></div>
-    {notice && <div className="cap-notice" role="status">{notice}<button aria-label="关闭提示" type="button" onClick={() => setNotice("")}><X size={14}/></button></div>}
-    <section className="admin-card cap-panel">
-      <h3>海卓大脑办公助手</h3>
-      <p>标识 session-chat。勾选来自当前账号可见且启用的技能，保存后覆盖这一条智能体的绑定。</p>
+    <div className="capability-actions"><button className="cap-secondary" type="button" disabled={loading || busy} onClick={() => void load()}>刷新</button><button className="cap-primary" type="button" onClick={() => void save()} disabled={!ready || loading || busy}>{busy ? "保存中…" : "保存固定版本"}</button></div>
+    {notice && <div className="cap-notice" role="status">{notice}</div>}
+    <section className="admin-card cap-panel"><h3>海卓大脑办公助手</h3>
+      <p>每个 Skill 固定一个已发布版本。Skill 发布新版本不会自动升级此 Agent，需在此明确选择并保存。</p>
+      <p className="cap-hint">已停用或当前不可选的绑定默认保留。全局停用仍会阻止后续新轮次加载；取消勾选才会解除引用。</p>
       {loading && <p>正在加载绑定…</p>}
-      {!loading && !options.length && <p>没有可绑定的技能。</p>}
-      {options.map(skill => <label className="cap-choice" key={skill.name}><div><strong>{skill.name}</strong><small>{skill.description}</small></div><input type="checkbox" aria-label={skill.name} checked={selected.includes(skill.name)} onChange={() => toggle(skill.name)}/></label>)}
-      {held.length > 0 && <div className="cap-hint">这些技能已经绑定，但当前不能再勾选（已停用或对你不可见）。保存会解除它们：{held.map(item => item.name).join("、")}</div>}
+      {!loading && !rows.length && <p>没有可绑定的技能。</p>}
+      {!loading && rows.map(skill => {
+        const current = held.find(item => item.name === skill.name);
+        const available = options.some(item => item.name === skill.name);
+        const checked = Object.prototype.hasOwnProperty.call(selected, skill.name);
+        const versions = [...skill.versions];
+        if (current?.versionId && !versions.some(item => item.id === current.versionId)) versions.push({ id: current.versionId, platformVersion: current.platformVersion, versionNo: current.versionNo || "" });
+        return <div className="cap-choice skill-binding" key={skill.name}>
+          <label><input type="checkbox" aria-label={skill.name} checked={checked} disabled={busy} onChange={event => setSelected(previous => {
+            const next = { ...previous };
+            if (event.target.checked) next[skill.name] = current?.versionId || skill.currentVersionId;
+            else delete next[skill.name];
+            return next;
+          })}/><div><strong>{skill.name}</strong><small>{skill.description}</small><small>{!available ? "当前不可选，保留已有引用" : `当前 Agent 引用：${current ? releaseLabel(current) : "未绑定"}`}</small></div></label>
+          {checked && <label className="skill-version-picker">固定版本<select aria-label={`${skill.name} 固定版本`} disabled={!available || busy} value={selected[skill.name] || ""} onChange={event => setSelected(previous => ({ ...previous, [skill.name]: event.target.value || null }))}>
+            {!selected[skill.name] && <option value="">当前运行基线（保存时固定）</option>}
+            {versions.map(version => <option key={version.id} value={version.id}>{releaseLabel(version)}{skill.currentVersionId === version.id ? "（当前生效）" : ""}</option>)}
+          </select></label>}
+        </div>;
+      })}
     </section>
   </div>;
 }

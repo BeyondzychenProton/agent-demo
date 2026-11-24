@@ -106,4 +106,33 @@ public interface SkillMapper extends BaseMapper<SkillBean> {
 
     @Update("UPDATE agentscope_skills SET status = #{status} WHERE name = #{name}")
     int updateStatus(@Param("name") String name, @Param("status") String status);
+
+    /** 发布时锁住已有技能行。没有这一行表示首次发布。 */
+    @Select("""
+            SELECT id, name, description, skill_content, source, metadata_json, status, visible_scope, owner_dept_id,
+                   create_by, created_at
+            FROM agentscope_skills
+            WHERE name = #{name}
+            FOR UPDATE
+            """)
+    SkillBean lockByName(@Param("name") String name);
+
+    /** 发布已有技能：不改 id、source、created_at、create_by、status。 */
+    @Update("""
+            UPDATE agentscope_skills
+            SET description = #{description},
+                skill_content = #{skillContent},
+                metadata_json = #{metadataJson},
+                visible_scope = #{visibleScope},
+                owner_dept_id = #{ownerDeptId}
+            WHERE id = #{id}
+            """)
+    int updatePublishedContent(SkillBean row);
+
+    @Select("""
+            SELECT id, name, description, skill_content, source, status, visible_scope, owner_dept_id, create_by
+            FROM agentscope_skills
+            ORDER BY name
+            """)
+    List<SkillBean> listAll();
 }

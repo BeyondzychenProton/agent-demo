@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, ArrowLeft, Blocks, Bot, Box, ChevronRight, ClipboardList, Info, LayoutDashboard, Settings, ShieldCheck, Sparkles, Users } from "lucide-react";
 import type { AuthUser } from "@/auth/api";
 import "./admin.css";
@@ -10,10 +10,18 @@ const menus = [
   { group: "能力与连接", items: [{ name: "Skills 管理", icon: Box }, { name: "MCP 管理", icon: Blocks }, { name: "Agent 管理", icon: Bot }] },
   { group: "管理", items: [{ name: "用户与权限", icon: Users }, { name: "审计日志", icon: ShieldCheck }, { name: "系统设置", icon: Settings }] },
 ];
-const descriptions: Record<string,string> = { "平台总览":"查看平台运行情况与能力概览。", "Skills 管理":"管理平台的 Skills 能力。", "MCP 管理":"管理 MCP 服务与工具连接。", "Agent 管理":"管理智能体及其能力配置。", "审计日志":"查看平台操作与调用记录。", "系统设置":"管理平台的基础配置。" };
+const descriptions: Record<string,string> = { "平台总览":"查看平台运行情况与能力概览。", "Skills 管理":"配置业务执行流程与具体工具依赖，发布版本供 Agent 选择，业务授权独立管理。", "MCP 管理":"管理 MCP 服务与工具连接。", "Agent 管理":"管理智能体及其能力配置。", "审计日志":"查看平台操作与调用记录。", "系统设置":"管理平台的基础配置。" };
 
 export function AdminPage({ user, onBack }: { user: AuthUser; onBack: () => void }) {
   const [page, setPage] = useState("用户与权限");
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const name = (event as CustomEvent<string>).detail;
+      if (menus.some(group => group.items.some(item => item.name === name))) setPage(name);
+    };
+    window.addEventListener("admin-navigate", handler);
+    return () => window.removeEventListener("admin-navigate", handler);
+  }, []);
   const navigate = (action: () => void) => { const event = new CustomEvent("admin-before-navigate", { cancelable: true, detail: { resume: action } }); if (window.dispatchEvent(event)) action(); };
   return <main className="admin-app">
     <aside className="admin-sidebar">

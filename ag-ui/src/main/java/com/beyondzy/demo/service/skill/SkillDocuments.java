@@ -13,8 +13,11 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -80,9 +83,11 @@ public final class SkillDocuments {
         normalized = stripSharedRoot(normalized);
         String skill = null;
         Map<String, String> resources = new LinkedHashMap<>();
+        Set<String> paths = new HashSet<>();
         for (SkillUpload upload : normalized) {
             String path = upload.filename();
             rejectShape(path);
+            if (!paths.add(path.toLowerCase(Locale.ROOT))) fail(400, "文件路径大小写冲突: " + path);
             SkillFileKind kind = kind(path);
             if (kind == SkillFileKind.SKILL) {
                 if (skill != null) fail(400, "只能有一个 SKILL.md");

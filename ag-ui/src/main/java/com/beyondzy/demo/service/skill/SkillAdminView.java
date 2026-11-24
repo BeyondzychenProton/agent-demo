@@ -34,12 +34,15 @@ public final class SkillAdminView {
 
     public record File(String path, String content) {}
 
-    public record Option(String name, String description) {}
+    public record VersionOption(String id, String platformVersion, String versionNo) {}
+
+    public record Option(String name, String description, String currentVersionId, List<VersionOption> versions) {}
 
     public record Agent(
             String agentId,
             String title,
             List<BoundSkill> skills) {}
 
-    public record BoundSkill(String name, String description, String status, String visibleScope) {}
+    public record BoundSkill(String name, String description, String status, String visibleScope,
+            String versionId, String platformVersion, String versionNo) {}
 }

@@ -9,6 +9,10 @@ import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
+import com.beyondzy.demo.mapper.skill.SkillReleaseMapper;
+import com.beyondzy.demo.domain.skill.SkillVersionBean;
+import com.beyondzy.demo.service.skill.SkillSupport;
 import com.beyondzy.demo.service.skill.SkillAdminService;
 import com.beyondzy.demo.service.skill.SkillAdminView;
 import com.beyondzy.demo.service.skill.SkillDocuments;
@@ -17,7 +21,6 @@ import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -31,17 +34,26 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     private final SkillMapper skills;
     private final SkillResourceMapper resources;
     private final AgentSkillMapper bindings;
+    private final SkillVersionMapper versions;
     private final SkillVisibilityService visibility;
+    private final SkillBaselineMigrator baselines;
+    private final SkillReleaseMapper releases;
 
     public SkillAdminServiceImpl(
             SkillMapper skills,
             SkillResourceMapper resources,
             AgentSkillMapper bindings,
-            SkillVisibilityService visibility) {
+            SkillVersionMapper versions,
+            SkillVisibilityService visibility,
+            SkillBaselineMigrator baselines,
+            SkillReleaseMapper releases) {
         this.skills = skills;
         this.resources = resources;
         this.bindings = bindings;
+        this.versions = versions;
         this.visibility = visibility;
+        this.baselines = baselines;
+        this.releases = releases;
     }
 
     @Override
@@ -105,7 +117,12 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     @Override
     @Transactional
     public void delete(String name) {
-        SkillBean row = require(name);
+        if (name == null || !SkillDocuments.NAME.matcher(name).matches()) throw new SkillException(400, "技能名不合法");
+        SkillBean row = skills.lockByName(name);
+        if (row == null) throw new SkillException(404, "技能不存在: " + name);
+        if (versions.countBySkillName(row.getName()) > 0) {
+            throw new SkillException(409, "VERSION_HISTORY_EXISTS", "技能已有版本历史，请改为停用");
+        }
         if (bindings.countBySkill(row.getId()) > 0) {
             throw new SkillException(409, "技能仍被绑定，请先解绑");
         }
@@ -134,7 +151,11 @@ public class SkillAdminServiceImpl implements SkillAdminService {
         List<SkillAdminView.Option> options = new ArrayList<>();
         for (SkillBean skill : skills.listEnabled()) {
             if (!visibility.visibleTo(skill, operatorId)) continue;
-            options.add(new SkillAdminView.Option(skill.getName(), skill.getDescription()));
+            options.add(new SkillAdminView.Option(skill.getName(), skill.getDescription(),
+                    SkillSupport.id(releases.current(skill.getId())),
+                    versions.page(skill.getName(), "PUBLISHED", 100, 0).stream()
+                            .map(v -> new SkillAdminView.VersionOption(SkillSupport.id(v.getId()), v.getPlatformVersion(),
+                                    Integer.toString(v.getVersionNo()))).toList()));
         }
         return List.copyOf(options);
     }
@@ -143,8 +164,13 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     public SkillAdminView.Agent agent(String agentId) {
         requireAgent(agentId);
         List<SkillAdminView.BoundSkill> skillsBound = bindings.listBound(agentId).stream()
-                .map(row -> new SkillAdminView.BoundSkill(
-                        row.getName(), row.getDescription(), row.getStatus(), row.getVisibleScope()))
+                .map(row -> {
+                    SkillVersionBean version = row.getVersionId() == null ? null : versions.find(row.getVersionId());
+                    return new SkillAdminView.BoundSkill(row.getName(), row.getDescription(), row.getStatus(),
+                            row.getVisibleScope(), SkillSupport.id(row.getVersionId()),
+                            version == null ? null : version.getPlatformVersion(),
+                            version == null ? null : Integer.toString(version.getVersionNo()));
+                })
                 .toList();
         return new SkillAdminView.Agent(SkillJdbc.SESSION_AGENT, AGENT_TITLE, skillsBound);
     }
@@ -152,18 +178,41 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     @Override
     @Transactional
     public void replaceBindings(long operatorId, String agentId, List<String> names) {
-        requireAgent(agentId);
         if (names == null) throw new SkillException(400, "技能名单不能为空");
-        LinkedHashSet<String> unique = new LinkedHashSet<>();
-        for (String name : names) unique.add(requiredName(name));
+        replaceVersionBindings(operatorId, agentId, names.stream().distinct().map(name -> new Binding(name, null)).toList());
+    }
+
+    @Override
+    @Transactional
+    public void replaceVersionBindings(long operatorId, String agentId, List<Binding> requested) {
+        requireAgent(agentId);
+        if (requested == null) throw new SkillException(400, "技能名单不能为空");
+        Map<String, Long> held = new LinkedHashMap<>();
+        bindings.listBound(agentId).forEach(row -> held.put(row.getName(), row.getVersionId()));
+        Map<String, String> unique = new LinkedHashMap<>();
+        for (Binding binding : requested) {
+            if (binding == null) throw new SkillException(400, "绑定不能为空");
+            String name = requiredName(binding.name());
+            if (unique.containsKey(name)) throw new SkillException(400, "技能不能重复绑定");
+            unique.put(name, binding.versionId());
+        }
         List<SkillBean> accepted = new ArrayList<>();
-        for (String name : unique) {
+        for (String name : unique.keySet()) {
             SkillBean skill = skills.findGoverned(name);
             if (skill == null) throw new SkillException(404, "技能不存在: " + name);
-            if (!"0".equals(skill.getStatus())) throw new SkillException(400, "不能绑定已停用的技能: " + name);
+            long current = baselines.ensure(name, operatorId);
+            Long previous = held.get(name);
+            Long chosen = unique.get(name) == null ? (previous == null ? current : previous)
+                    : SkillSupport.positiveId(unique.get(name), "VERSION_NOT_FOUND", "版本不存在");
+            boolean unchanged = held.containsKey(name) && (previous == null || previous.equals(chosen));
+            if (!"0".equals(skill.getStatus()) && !unchanged) throw new SkillException(400, "不能绑定已停用的技能: " + name);
             if (!visibility.visibleTo(skill, operatorId)) {
-                throw new SkillException(400, "不能绑定当前账号不可见的技能: " + name);
+                if (!unchanged) throw new SkillException(400, "不能绑定当前账号不可见的技能: " + name);
             }
+            SkillVersionBean version = versions.find(chosen);
+            if (version == null || !"PUBLISHED".equals(version.getState()) || !skill.getId().equals(version.getSkillId())
+                    || !name.equals(version.getSkillName())) throw new SkillException(400, "只能固定该技能的已发布版本");
+            skill.setVersionId(chosen);
             accepted.add(skill);
         }
         bindings.deleteByAgent(agentId);
@@ -171,6 +220,7 @@ public class SkillAdminServiceImpl implements SkillAdminService {
             AgentSkillBean row = new AgentSkillBean();
             row.setAgentId(agentId);
             row.setSkillId(skill.getId());
+            row.setVersionId(skill.getVersionId());
             row.setCreatedBy(operatorId);
             bindings.insert(row);
         }

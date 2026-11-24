@@ -2,6 +2,10 @@ package com.beyondzy.demo.config.chat;
 
 import com.beyondzy.demo.config.langfuse.LangfuseTracing;
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.skill.VersionedSkillRepository;
+import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
+import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.mantianxing.MantianxingMcpClient;
@@ -22,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,8 +49,11 @@ public class ChatConfiguration {
 
     /** 只读。管理端用自己的 SQL 写技能，这里的 save 不会改行。 */
     @Bean(destroyMethod = "close")
-    AgentSkillRepository skillRepository(DataSource dataSource, AbstractJdbcDialect skillDialect) {
-        return new JdbcAgentSkillRepository(dataSource, skillDialect, false);
+    AgentSkillRepository skillRepository(DataSource dataSource, AbstractJdbcDialect skillDialect,
+            AgentSkillMapper bindings, SkillVersionMapper versions, SkillVersionFileMapper files,
+            SkillVisibilityService visibility) {
+        return new VersionedSkillRepository(new JdbcAgentSkillRepository(dataSource, skillDialect, false),
+                bindings, versions, files, visibility);
     }
 
     @Bean(destroyMethod = "close")
@@ -59,10 +67,7 @@ public class ChatConfiguration {
             @Value("${chat.api-key}") String key,
             @Value("${chat.workspace}") String workspace,
             UserService users,
-            @Value("${mcp.endpoint:}") String mcpEndpoint,
-            @Value("${mcp.app-key:}") String mcpAppKey,
-            @Value("${mcp.secret:}") String mcpSecret,
-            @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone,
+            ObjectProvider<McpServer> mcpServers,
             AgentSkillRepository skillRepository,
             SkillVisibilityService skillVisibility,
             LangfuseTracing langfuseTracing) {
@@ -78,6 +83,27 @@ public class ChatConfiguration {
                         .modelName(modelName)
                         .stream(true) // 开启流式，产生 committed 的 model/chunk 事件供增量重放
                         .build();
+        // sessionLogStore 传 null：由 ChatSessions 按官方 USER 工作区创建日志后端。
+        // 启动时会扫描已有用户目录并恢复调度；请求期 userId 仍由 UserContext 覆盖。
+        return new ChatSessions(Path.of(workspace), model,
+                null, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers.orderedStream().toList(),
+                skillRepository, users, langfuseTracing.middlewares(), skillVisibility);
+    }
+
+    /** 同一个实例同时给聊天和技能目录用，避免目录再造一套发现结果。 */
+    @Bean
+    McpServer mantianxingMcp(
+            UserService users,
+            @Value("${mcp.endpoint:}") String mcpEndpoint,
+            @Value("${mcp.app-key:}") String mcpAppKey,
+            @Value("${mcp.secret:}") String mcpSecret,
+            @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone) {
+        List<McpServer> servers = mcpServers(users, mcpEndpoint, mcpAppKey, mcpSecret, mcpDiscoveryPhone);
+        return servers.isEmpty() ? null : servers.get(0);
+    }
+
+    private List<McpServer> mcpServers(
+            UserService users, String mcpEndpoint, String mcpAppKey, String mcpSecret, String mcpDiscoveryPhone) {
         List<McpServer> mcpServers = new ArrayList<>();
         MantianxingMcpClient mantianxing = MantianxingMcpClient.ifConfigured(
                 mcpEndpoint, mcpAppKey, mcpSecret, mcpDiscoveryPhone, userId -> phoneOf(users, userId));
@@ -89,11 +115,7 @@ public class ChatConfiguration {
             logger.info("满天星 MCP 已配置 endpoint={}", mcpEndpoint.trim());
             mcpServers.add(mantianxing);
         }
-        // sessionLogStore 传 null：由 ChatSessions 按官方 USER 工作区创建日志后端。
-        // 启动时会扫描已有用户目录并恢复调度；请求期 userId 仍由 UserContext 覆盖。
-        return new ChatSessions(Path.of(workspace), model,
-                null, "1", displayIndex, readModelPersistence, agentSessionService, mcpServers,
-                skillRepository, users, langfuseTracing.middlewares(), skillVisibility);
+        return mcpServers;
     }
 
     private static String phoneOf(UserService users, String userId) {

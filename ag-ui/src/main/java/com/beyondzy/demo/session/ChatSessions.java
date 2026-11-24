@@ -34,6 +34,7 @@ import com.beyondzy.demo.tools.ClockTools;
 import com.beyondzy.demo.tools.CurrentUserTool;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.config.skill.VersionedSkillRepository;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.skill.SkillFilter;
@@ -59,6 +60,7 @@ public final class ChatSessions implements AutoCloseable {
     private final HitlService hitl = new HitlService();
     private final HarnessAgent agent;
     private final SkillVisibilityService skillVisibility;
+    private final VersionedSkillRepository versionedSkills;
     private final List<String> mcpToolNames;
     private final SessionLogStore store;
     private final UserWorkspaceLog userLog;
@@ -180,6 +182,7 @@ public final class ChatSessions implements AutoCloseable {
         if (readModelPersistence == null)
             throw new IllegalArgumentException("ChatSessions 需要读模型持久化服务");
         this.skillVisibility = skillVisibility;
+        this.versionedSkills = skillRepository instanceof VersionedSkillRepository versioned ? versioned : null;
         modelName = model.getModelName();
         this.defaultUserId = userId;
         this.agentSessions = agentSessionService;
@@ -338,11 +341,18 @@ public final class ChatSessions implements AutoCloseable {
         SkillFilter turn = names.isEmpty()
                 ? SkillFilter.none()
                 : SkillFilter.only(names.toArray(String[]::new));
-        return RuntimeContext.builder()
+        RuntimeContext result = RuntimeContext.builder()
                 .userId(userId)
                 .sessionId(id(session))
                 .put(SkillFilter.class, turn)
                 .build();
+        if (versionedSkills != null) {
+            VersionedSkillRepository.Snapshot snapshot = versionedSkills.capture(AGENT, userId);
+            result.put(VersionedSkillRepository.Snapshot.class, snapshot);
+            result.put(SkillFilter.class, snapshot.skills().isEmpty() ? SkillFilter.none()
+                    : SkillFilter.only(snapshot.skills().stream().map(io.agentscope.core.skill.AgentSkill::getName).toArray(String[]::new)));
+        }
+        return result;
     }
 
     /**

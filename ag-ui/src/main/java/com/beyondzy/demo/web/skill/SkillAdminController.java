@@ -1,8 +1,8 @@
 package com.beyondzy.demo.web.skill;
 
+import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.service.skill.SkillAdminService;
 import com.beyondzy.demo.service.skill.SkillAdminView;
-import com.beyondzy.demo.service.skill.SkillDraft;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.skill.req.SaveSkillRequest;
 import com.beyondzy.demo.web.skill.req.SkillStatusRequest;
@@ -10,8 +10,6 @@ import com.beyondzy.demo.web.skill.res.SkillAdminDetailResponse;
 import com.beyondzy.demo.web.skill.res.SkillAdminPageResponse;
 import com.beyondzy.demo.web.skill.res.SkillOptionResponse;
 import java.util.List;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -52,7 +50,7 @@ public class SkillAdminController {
     @GetMapping("/options")
     public Mono<List<SkillOptionResponse>> options() {
         return admin().flatMap(id -> Mono.fromCallable(() -> skills.options(id).stream()
-                        .map(option -> new SkillOptionResponse(option.name(), option.description()))
+                        .map(option -> new SkillOptionResponse(option.name(), option.description(), option.currentVersionId(), option.versions()))
                         .toList())
                 .subscribeOn(Schedulers.boundedElastic()));
     }
@@ -65,14 +63,12 @@ public class SkillAdminController {
 
     @PostMapping
     public Mono<SkillAdminDetailResponse> create(@RequestBody SaveSkillRequest request) {
-        return admin().flatMap(id -> Mono.fromCallable(() -> detail(skills.create(id, draft(request))))
-                .subscribeOn(Schedulers.boundedElastic()));
+        return Mono.error(new SkillException(410, "LEGACY_WRITE_DISABLED", "请通过技能草稿创建，发布后才会写入运行内容"));
     }
 
     @PutMapping("/{name}")
     public Mono<SkillAdminDetailResponse> update(@PathVariable String name, @RequestBody SaveSkillRequest request) {
-        return admin().flatMap(id -> Mono.fromCallable(() -> detail(skills.update(id, name, draft(request))))
-                .subscribeOn(Schedulers.boundedElastic()));
+        return Mono.error(new SkillException(410, "LEGACY_WRITE_DISABLED", "请通过技能草稿修改，发布后才会更新运行内容"));
     }
 
     @PostMapping("/{name}/status")
@@ -93,29 +89,11 @@ public class SkillAdminController {
             @RequestParam(required = false) String visibleScope,
             @RequestParam(required = false) Long ownerDeptId,
             @RequestParam(required = false) String status) {
-        return admin().flatMap(id -> bytes(file).flatMap(body -> Mono.fromCallable(() -> detail(
-                        skills.importDocument(id, file.filename(), body, visibleScope, ownerDeptId, status)))
-                .subscribeOn(Schedulers.boundedElastic())));
+        return Mono.error(new SkillException(410, "LEGACY_IMPORT_DISABLED", "请使用导入批次，不要直接写入运行技能"));
     }
 
     private Mono<Long> admin() {
         return SkillAdminAccess.requireAdmin(users);
-    }
-
-    private static SkillDraft draft(SaveSkillRequest request) {
-        List<SkillDraft.SkillFile> files = request.files() == null
-                ? List.of()
-                : request.files().stream()
-                        .map(file -> new SkillDraft.SkillFile(file.path(), file.content()))
-                        .toList();
-        return new SkillDraft(
-                request.name(),
-                request.description(),
-                request.content(),
-                request.visibleScope(),
-                request.ownerDeptId(),
-                request.status(),
-                files);
     }
 
     private static SkillAdminPageResponse page(SkillAdminView.Page page) {
@@ -151,19 +129,5 @@ public class SkillAdminController {
                 detail.files().stream()
                         .map(file -> new SkillAdminDetailResponse.SkillFileResponse(file.path(), file.content()))
                         .toList());
-    }
-
-    private static Mono<byte[]> bytes(FilePart file) {
-        return DataBufferUtils.join(file.content()).map(SkillAdminController::copy);
-    }
-
-    private static byte[] copy(DataBuffer buffer) {
-        try {
-            byte[] body = new byte[buffer.readableByteCount()];
-            buffer.read(body);
-            return body;
-        } finally {
-            DataBufferUtils.release(buffer);
-        }
     }
 }

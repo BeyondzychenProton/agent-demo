@@ -48,6 +48,14 @@ class SkillArchiveServiceTest {
     }
 
     @Test
+    void rejectsPathsDifferingOnlyByCase() {
+        assertEquals(400, status(zip(
+                "SKILL.md", MARKDOWN,
+                "references/guide.md", "first",
+                "references/Guide.md", "second")));
+    }
+
+    @Test
     void traversalBinaryAndDisallowedDirectoriesAreRejected() {
         assertEquals(400, status(zip(
                 "meeting-booking/SKILL.md", MARKDOWN,
