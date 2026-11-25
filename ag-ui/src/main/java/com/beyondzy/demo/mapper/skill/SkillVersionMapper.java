@@ -1,7 +1,9 @@
 package com.beyondzy.demo.mapper.skill;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -52,17 +54,34 @@ public interface SkillVersionMapper extends BaseMapper<SkillVersionBean> {
             WHERE (#{name} IS NULL OR skill_name = #{name})
               AND (#{state} IS NULL OR state = #{state})
             ORDER BY skill_name, version_no DESC
-            LIMIT #{limit} OFFSET #{offset}
             """)
-    List<SkillVersionBean> page(@Param("name") String name, @Param("state") String state,
-            @Param("limit") int limit, @Param("offset") long offset);
+    IPage<SkillVersionBean> page(IPage<SkillVersionBean> page, @Param("name") String name, @Param("state") String state);
+
+    @Select("<script>SELECT " + COLUMNS + " FROM ai_skill_version WHERE id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    List<SkillVersionBean> listByIds(@Param("ids") Collection<Long> ids);
 
     @Select("""
-            SELECT COUNT(*) FROM ai_skill_version
-            WHERE (#{name} IS NULL OR skill_name = #{name})
-              AND (#{state} IS NULL OR state = #{state})
+            <script>
+            SELECT id, skill_name, platform_version, version_no
+            FROM ai_skill_version
+            WHERE state = #{state}
+              AND skill_name IN
+            <foreach collection="names" item="name" open="(" separator="," close=")">#{name}</foreach>
+            ORDER BY skill_name, version_no DESC
+            </script>
             """)
-    long count(@Param("name") String name, @Param("state") String state);
+    List<SkillVersionBean> listByNamesAndState(@Param("names") Collection<String> names, @Param("state") String state);
+
+    @Select("""
+            <script>
+            SELECT id, platform_version, version_no
+            FROM ai_skill_version
+            WHERE id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<SkillVersionBean> findSummaries(@Param("ids") Collection<Long> ids);
 
     @Insert("""
             INSERT INTO ai_skill_version (

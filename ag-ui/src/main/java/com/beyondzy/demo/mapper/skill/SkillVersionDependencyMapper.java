@@ -35,6 +35,21 @@ public interface SkillVersionDependencyMapper extends BaseMapper<SkillVersionDep
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertDependency(SkillVersionDependencyBean row);
 
+    @Insert("""
+            <script>
+            INSERT INTO ai_skill_version_dependency (
+                version_id, source_key, capability_key, required_flag, target_kind, target_provider_key,
+                target_tool_key, mapping_state, reason, target_snapshot_json, gmt_create, gmt_modified)
+            VALUES
+            <foreach collection="rows" item="row" separator=",">
+                (#{row.versionId}, #{row.sourceKey}, #{row.capabilityKey}, #{row.requiredFlag}, #{row.targetKind},
+                 #{row.targetProviderKey}, #{row.targetToolKey}, #{row.mappingState}, #{row.reason},
+                 #{row.targetSnapshotJson}, #{row.gmtCreate}, #{row.gmtModified})
+            </foreach>
+            </script>
+            """)
+    int insertDependencies(@Param("rows") List<SkillVersionDependencyBean> rows);
+
     @Delete("DELETE FROM ai_skill_version_dependency WHERE version_id = #{versionId}")
     int deleteByVersion(@Param("versionId") long versionId);
 }

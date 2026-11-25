@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.support;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.ArrayList;

@@ -52,6 +52,8 @@ public class SecurityConfiguration {
                         .pathMatchers(HttpMethod.POST, "/api/auth/password", "/api/auth/logout").authenticated()
                         .pathMatchers("/api/**", "/agui/**")
                         .hasAuthority(SessionTokenAuthenticationManager.APP_ACCESS)
+                        .pathMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**")
+                        .hasAuthority(SessionTokenAuthenticationManager.APP_ACCESS)
                         .anyExchange().permitAll())
                 .exceptionHandling(spec -> spec
                         .authenticationEntryPoint((exchange, ex) -> writeUnauthorized(exchange))

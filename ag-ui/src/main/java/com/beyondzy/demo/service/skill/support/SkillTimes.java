@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.support;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;

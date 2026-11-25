@@ -8,6 +8,7 @@ import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.support.DbTimes;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -29,7 +30,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public UserBean register(String name, String phone, String rawPassword) {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("姓名不能为空");
         if (phone == null || !phone.matches(PHONE_PATTERN)) throw new IllegalArgumentException("手机号格式不正确");
@@ -56,7 +57,7 @@ public class UserServiceImpl implements UserService {
     public UserBean findById(long id) {
         UserBean user = mapper.selectById(id);
         user = initializePasswordChange(user);
-        if (user == null || (user.getIsDeleted() != null && user.getIsDeleted() != 0)) {
+        if (user == null || (user.getIsDeleted() != null && !Objects.equals(user.getIsDeleted(), UserBean.NOT_DELETED))) {
             return null;
         }
         return user;
@@ -69,7 +70,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void changePassword(long userId, long sessionId, String currentPassword, String newPassword) {
         if (newPassword == null || newPassword.isBlank() || newPassword.length() < 8
                 || newPassword.getBytes(StandardCharsets.UTF_8).length > 72
@@ -86,10 +87,10 @@ public class UserServiceImpl implements UserService {
         }
         int changed = mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
                 .eq(UserBean::getId, userId)
-                .eq(UserBean::getIsDeleted, 0)
+                .eq(UserBean::getIsDeleted, UserBean.NOT_DELETED)
                 .eq(UserBean::getPasswordHash, user.getPasswordHash())
                 .set(UserBean::getPasswordHash, passwordEncoder.encode(newPassword))
-                .set(UserBean::getMustChangePassword, 0)
+                .set(UserBean::getMustChangePassword, UserBean.PASSWORD_CURRENT)
                 .set(UserBean::getGmtModified, DbTimes.now()));
         if (changed != 1) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Account changed, please retry");
@@ -100,7 +101,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void syncDirectoryAccount(long sourceId, String name, String phone, boolean active) {
         var account = findDirectoryAccount(sourceId);
         try {
@@ -110,15 +111,15 @@ public class UserServiceImpl implements UserService {
                 account.setName(name);
                 account.setPhone(phone);
                 account.setPasswordHash(passwordEncoder.encode(SYNC_INITIAL_PASSWORD));
-                account.setMustChangePassword(1);
-                account.setIsDeleted(active ? 0 : 1);
+                account.setMustChangePassword(UserBean.PASSWORD_MUST_CHANGE);
+                account.setIsDeleted(active ? UserBean.NOT_DELETED : UserBean.DELETED);
                 mapper.insert(account);
             } else {
                 mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
                         .eq(UserBean::getId, account.getId())
                         .set(UserBean::getName, name)
                         .set(UserBean::getPhone, phone)
-                        .set(UserBean::getIsDeleted, active ? 0 : 1)
+                        .set(UserBean::getIsDeleted, active ? UserBean.NOT_DELETED : UserBean.DELETED)
                         .set(UserBean::getGmtModified, DbTimes.now()));
             }
         } catch (DuplicateKeyException ex) {
@@ -128,14 +129,18 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void disableDirectoryAccount(long sourceId) {
         var account = findDirectoryAccount(sourceId);
         if (account == null) return;
-        mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
+        int updated = mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
                 .eq(UserBean::getId, account.getId())
-                .set(UserBean::getIsDeleted, 1)
+                .eq(UserBean::getIsDeleted, UserBean.NOT_DELETED)
+                .set(UserBean::getIsDeleted, UserBean.DELETED)
                 .set(UserBean::getGmtModified, DbTimes.now()));
+        if (updated > 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Account changed, please retry");
+        }
         revokeSessions(account.getId());
     }
 
@@ -152,15 +157,16 @@ public class UserServiceImpl implements UserService {
     /** 历史同步账号在认证时补齐标记，保留并发完成的改密结果。 */
     private UserBean initializePasswordChange(UserBean user) {
         if (user == null || user.getMantianxingUserId() == null || user.getMustChangePassword() != null
-                || Integer.valueOf(1).equals(user.getIsDeleted())) return user;
+                || Objects.equals(user.getIsDeleted(), UserBean.DELETED)) return user;
 
-        int required = matchesPassword(user, SYNC_INITIAL_PASSWORD) ? 1 : 0;
+        int required = matchesPassword(user, SYNC_INITIAL_PASSWORD) ? UserBean.PASSWORD_MUST_CHANGE : UserBean.PASSWORD_CURRENT;
         int updated = mapper.update(null, Wrappers.<UserBean>lambdaUpdate()
                 .eq(UserBean::getId, user.getId())
-                .eq(UserBean::getIsDeleted, 0)
+                .eq(UserBean::getIsDeleted, UserBean.NOT_DELETED)
                 .isNull(UserBean::getMustChangePassword)
                 .eq(UserBean::getPasswordHash, user.getPasswordHash())
-                .set(UserBean::getMustChangePassword, required));
+                .set(UserBean::getMustChangePassword, required)
+                .set(UserBean::getGmtModified, DbTimes.now()));
         if (updated == 0) return mapper.selectById(user.getId());
 
         user.setMustChangePassword(required);

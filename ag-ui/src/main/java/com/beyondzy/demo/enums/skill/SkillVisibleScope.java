@@ -1,8 +1,10 @@
 package com.beyondzy.demo.enums.skill;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.beyondzy.demo.exception.skill.SkillException;
 
 /** 技能行上的可见范围。本部门只比较部门 id，不沿父部门展开。 */
+@Schema(description = "技能行上的可见范围。本部门只比较部门 id，不沿父部门展开。")
 public enum SkillVisibleScope {
     PUBLIC("0"),
     DEPARTMENT("1"),

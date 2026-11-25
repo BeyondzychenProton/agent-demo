@@ -1,6 +1,7 @@
 package com.beyondzy.demo.mapper.skill;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.beyondzy.demo.domain.skill.SkillBean;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -18,12 +19,8 @@ public interface SkillMapper extends BaseMapper<SkillBean> {
                    (SELECT COUNT(*) FROM agentscope_skill_resources r WHERE r.id = s.id) AS resource_count
             FROM agentscope_skills s
             ORDER BY name
-            LIMIT #{limit} OFFSET #{offset}
             """)
-    List<SkillBean> page(@Param("limit") int limit, @Param("offset") long offset);
-
-    @Select("SELECT COUNT(*) FROM agentscope_skills")
-    long countAll();
+    IPage<SkillBean> page(IPage<SkillBean> page);
 
     @Select("""
             SELECT id, name, description, source, created_at, updated_at
@@ -57,20 +54,8 @@ public interface SkillMapper extends BaseMapper<SkillBean> {
                    OR description LIKE CONCAT('%', #{q}, '%') ESCAPE '!')
               AND (#{status} IS NULL OR status = #{status})
             ORDER BY name
-            LIMIT #{limit} OFFSET #{offset}
             """)
-    List<SkillBean> adminPage(@Param("q") String query, @Param("status") String status,
-            @Param("limit") int limit, @Param("offset") long offset);
-
-    /** 筛选条件与 adminPage 相同，转义符同样是 !。 */
-    @Select("""
-            SELECT COUNT(*)
-            FROM agentscope_skills
-            WHERE (#{q} IS NULL OR name LIKE CONCAT('%', #{q}, '%') ESCAPE '!'
-                   OR description LIKE CONCAT('%', #{q}, '%') ESCAPE '!')
-              AND (#{status} IS NULL OR status = #{status})
-            """)
-    long adminCount(@Param("q") String query, @Param("status") String status);
+    IPage<SkillBean> adminPage(IPage<SkillBean> page, @Param("q") String query, @Param("status") String status);
 
     /** 绑定页候选项：启用，并且对当前操作人可见。不要求已经绑定。 */
     @Select("""
@@ -104,8 +89,12 @@ public interface SkillMapper extends BaseMapper<SkillBean> {
             """)
     int updateGovernance(SkillBean row);
 
-    @Update("UPDATE agentscope_skills SET status = #{status} WHERE name = #{name}")
-    int updateStatus(@Param("name") String name, @Param("status") String status);
+    @Update("""
+            UPDATE agentscope_skills SET status = #{status}
+            WHERE name = #{name}
+              AND ((#{expected} IS NULL AND status IS NULL) OR status = #{expected})
+            """)
+    int updateStatus(@Param("name") String name, @Param("expected") String expected, @Param("status") String status);
 
     /** 发布时锁住已有技能行。没有这一行表示首次发布。 */
     @Select("""

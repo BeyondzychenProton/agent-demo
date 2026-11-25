@@ -1,5 +1,7 @@
 package com.beyondzy.demo.web.chat;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import io.agentscope.core.util.JsonUtils;
 import com.beyondzy.demo.handler.admin.AuthRequests;
 import com.beyondzy.demo.handler.admin.CurrentUser;
@@ -40,6 +42,7 @@ import reactor.core.scheduler.Schedulers;
  *
  * <p>不提供前端页面，用 curl 或任意 HTTP 客户端验证闭环。
  */
+@Tag(name = "会话", description = "会话列表、快照、提交和增量事件")
 @RestController
 @RequestMapping(value = "/api", produces = MediaType.APPLICATION_JSON_VALUE)
 public class ChatController {
@@ -58,6 +61,7 @@ public class ChatController {
      * GET /api/sessions：已落盘会话列表 + 当前模型名。
      */
     @GetMapping("/sessions")
+    @Operation(summary = "查询会话列表")
     public Mono<String> list() {
         return json(() -> Map.of("sessions", sessions.list(), "model", sessions.modelName()));
     }
@@ -66,6 +70,7 @@ public class ChatController {
      * GET /api/sessions/{id}：现算快照（消息 + 卡片 + turn + pending + cursor）。
      */
     @GetMapping("/sessions/{id}")
+    @Operation(summary = "查询会话快照")
     public Mono<String> snapshot(@PathVariable String id) {
         return json(() -> sessions.snapshot(id));
     }
@@ -74,6 +79,7 @@ public class ChatController {
      * POST /api/sessions/{id}/turns：提交一次任务，body={request_id, message}。
      */
     @PostMapping("/sessions/{id}/turns")
+    @Operation(summary = "提交一轮对话")
     public Mono<String> submit(
             @PathVariable String id, @RequestBody Map<String, String> body) {
         return json(() -> sessions.submit(id, body.get("request_id"), body.get("message")));
@@ -86,6 +92,7 @@ public class ChatController {
      * 每帧带 id=水位；15s keepalive 注释帧防止代理断开空连接。
      */
     @GetMapping(value = "/sessions/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "订阅会话增量")
     public Flux<ServerSentEvent<String>> stream(
             @PathVariable String id,
             @RequestParam(required = false) String after,
@@ -132,6 +139,7 @@ public class ChatController {
      * GET /api/threads/{id}/view：6.1.8 SnapshotResponse（页面视图 + 待答 + 水位）。
      */
     @GetMapping("/threads/{id}/view")
+    @Operation(summary = "查询会话展示")
     public Mono<String> view(@PathVariable String id) {
         return json(() -> sessions.view(id));
     }
@@ -144,6 +152,7 @@ public class ChatController {
     @GetMapping(
             value = "/threads/{id}/view/events",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "订阅展示增量")
     public Flux<ServerSentEvent<String>> viewEvents(
             @PathVariable String id,
             @RequestParam(required = false) String after,
@@ -195,6 +204,7 @@ public class ChatController {
      * 状态冲突返回 409 并附当前视图；视图暂不可读时明确需要核对，不编造接收失败。
      */
     @PostMapping("/threads/{id}/interactions/{requestId}/answer")
+    @Operation(summary = "提交审批答复")
     public Mono<ResponseEntity<String>> answer(@PathVariable String id,
             @PathVariable String requestId, @RequestBody ApprovalAnswerRequest body) {
         return AuthRequests.call(() -> {
@@ -206,6 +216,7 @@ public class ChatController {
 
     /** 取消逻辑任务而非关闭页面；只支持等待阶段，重复取消返回已记录的结果。 */
     @PostMapping("/threads/{id}/turns/{turnId}/cancel")
+    @Operation(summary = "取消一轮对话")
     public Mono<ResponseEntity<String>> cancel(@PathVariable String id, @PathVariable String turnId) {
         return AuthRequests.call(() -> ResponseEntity.ok(JsonUtils.getJsonCodec()
                         .toJson(sessions.cancelPending(id, turnId))))
@@ -233,6 +244,7 @@ public class ChatController {
      * 普通消息仍走原 view/events 增量流。重启后从日志重新发现变化，不依赖易失内存通知。
      */
     @GetMapping(value = "/threads/{id}/interactions/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "订阅待处理交互")
     public Flux<ServerSentEvent<String>> interactionEvents(@PathVariable String id) {
         return CurrentUser.requireUserId().flatMapMany(userId -> {
             String uid = String.valueOf(userId);

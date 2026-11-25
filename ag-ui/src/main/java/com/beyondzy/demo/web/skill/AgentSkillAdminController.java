@@ -1,7 +1,9 @@
 package com.beyondzy.demo.web.skill;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.service.skill.SkillAdminService;
-import com.beyondzy.demo.service.skill.SkillAdminView;
+import com.beyondzy.demo.service.skill.view.SkillAdminView;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.skill.req.SaveAgentSkillsRequest;
 import com.beyondzy.demo.web.skill.res.AgentSkillResponse;
@@ -16,6 +18,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 维护 session-chat 的技能绑定。其他 agentId 由服务返回 404。 */
+@Tag(name = "技能绑定", description = "维护 session-chat 的技能绑定")
 @RestController
 @RequestMapping(value = "/api/admin/agents", produces = MediaType.APPLICATION_JSON_VALUE)
 public class AgentSkillAdminController {
@@ -28,6 +31,7 @@ public class AgentSkillAdminController {
     }
 
     @GetMapping("/{agentId}")
+    @Operation(summary = "查询智能体绑定")
     public Mono<AgentSkillResponse> agent(@PathVariable String agentId) {
         return SkillAdminAccess.requireAdmin(users)
                 .flatMap(id -> Mono.fromCallable(() -> response(skills.agent(agentId)))
@@ -35,6 +39,7 @@ public class AgentSkillAdminController {
     }
 
     @PutMapping("/{agentId}/skills")
+    @Operation(summary = "覆盖智能体的技能绑定")
     public Mono<Void> replace(@PathVariable String agentId, @RequestBody SaveAgentSkillsRequest request) {
         return SkillAdminAccess.requireAdmin(users)
                 .flatMap(id -> Mono.<Void>fromRunnable(() -> {

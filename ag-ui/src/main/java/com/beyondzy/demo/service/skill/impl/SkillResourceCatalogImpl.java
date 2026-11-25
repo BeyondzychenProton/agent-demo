@@ -1,10 +1,13 @@
 package com.beyondzy.demo.service.skill.impl;
 
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.contract.Pages;
 import com.beyondzy.demo.enums.skill.SkillTargetKind;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolDefinition;
 import com.beyondzy.demo.service.skill.SkillResourceCatalog;
+import com.beyondzy.demo.service.skill.SkillResourceCatalog.SkillResourceOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -17,8 +20,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class SkillResourceCatalogImpl implements SkillResourceCatalog {
     private static final List<SkillResourceOption> PLATFORMS = List.of(
-            new SkillResourceOption("PLATFORM", null, "get_current_time", "读取当前时间", List.of("clock.read"), true),
-            new SkillResourceOption("PLATFORM", null, "get_current_user", "查询当前登录用户", List.of("user.read"), true));
+            new SkillResourceOption(SkillTargetKind.PLATFORM.name(), null, "get_current_time", "读取当前时间", List.of("clock.read"), true),
+            new SkillResourceOption(SkillTargetKind.PLATFORM.name(), null, "get_current_user", "查询当前登录用户", List.of("user.read"), true));
 
     private final List<McpServer> servers;
 
@@ -32,8 +35,8 @@ public class SkillResourceCatalogImpl implements SkillResourceCatalog {
     }
 
     @Override
-    public SkillResourcePage page(String kind, String query, int page, int size) {
-        if (page < 1 || size < 1 || size > 100) throw new SkillException(400, "INVALID_ARGUMENT", "分页参数不合法");
+    public PageResult<SkillResourceCatalog.SkillResourceOption> page(String kind, String query, int page, int size) {
+        if (!Pages.valid(page, size)) throw new SkillException(400, "INVALID_ARGUMENT", "分页参数不合法");
         SkillTargetKind target = SkillTargetKind.parse(kind);
         if (target == SkillTargetKind.UNRESOLVED) {
             throw new SkillException(400, "INVALID_ARGUMENT", "不能查询未解析目标");
@@ -45,10 +48,8 @@ public class SkillResourceCatalogImpl implements SkillResourceCatalog {
             if (!needle.isEmpty() && !haystack(option).contains(needle)) continue;
             matched.add(option);
         }
-        matched.sort(Comparator.comparing(SkillResourceOption::toolKey));
-        int from = Math.min((page - 1) * size, matched.size());
-        int to = Math.min(from + size, matched.size());
-        return new SkillResourcePage(List.copyOf(matched.subList(from, to)), matched.size(), page, size);
+        matched.sort(Comparator.comparing(SkillResourceCatalog.SkillResourceOption::toolKey));
+        return PageResult.slice(matched, page, size);
     }
 
     @Override
@@ -76,7 +77,7 @@ public class SkillResourceCatalogImpl implements SkillResourceCatalog {
                         ? tool.name()
                         : tool.description();
                 options.add(new SkillResourceOption(
-                        "MCP_TOOL", server.id(), tool.name(), display, List.of(), true));
+                        SkillTargetKind.MCP_TOOL.name(), server.id(), tool.name(), display, List.of(), true));
             }
         }
         return options;

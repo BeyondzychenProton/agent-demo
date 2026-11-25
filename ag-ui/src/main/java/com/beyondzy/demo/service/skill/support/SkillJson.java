@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.support;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;

@@ -1,5 +1,7 @@
 package com.beyondzy.demo.web.readmodel;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.handler.admin.AuthRequests;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.exception.session.SessionNotFoundException;
@@ -21,6 +23,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 有界历史和内容块接口；旧接口继续保留兼容，不把部分历史伪装成完整快照。 */
+@Tag(name = "读模型", description = "有界历史和内容块")
 @RestController
 @ConditionalOnProperty(name = "chat.read-model-v2-enabled", havingValue = "true", matchIfMissing = true)
 @RequestMapping(value = "/api/v2/threads", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -30,12 +33,14 @@ public final class ReadModelController {
     public ReadModelController(ChatSessions sessions) { this.sessions = sessions; projection = sessions.projection(); }
 
     @GetMapping
+    @Operation(summary = "查询会话列表")
     public Mono<String> threads(@RequestParam(defaultValue = "20") int limit,
                                 @RequestParam(required = false) String cursor) {
         return AuthRequests.call(() -> ReadModelStore.json(sessions.threads(limit, cursor)));
     }
 
     @GetMapping("/{id}/view")
+    @Operation(summary = "查询有界会话展示")
     public Mono<String> view(@PathVariable String id, @RequestParam(defaultValue = "50") int limit,
                              @RequestParam(required = false) String before) {
         return AuthRequests.call(() -> {
@@ -54,6 +59,7 @@ public final class ReadModelController {
     }
 
     @GetMapping("/{id}/interactions")
+    @Operation(summary = "查询待处理交互")
     public Mono<String> interactions(@PathVariable String id, @RequestParam(defaultValue = "0") long after,
                                      @RequestParam(defaultValue = "20") int limit) {
         return AuthRequests.call(() -> {
@@ -66,6 +72,7 @@ public final class ReadModelController {
     }
 
     @GetMapping("/{id}/items/{itemId}/content")
+    @Operation(summary = "查询条目内容块")
     public Mono<String> content(@PathVariable String id, @PathVariable String itemId,
             @RequestParam long version, @RequestParam String field, @RequestParam(defaultValue = "0") int cursor) {
         return AuthRequests.call(() -> {
@@ -76,6 +83,7 @@ public final class ReadModelController {
     }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "订阅读模型增量")
     public Flux<ServerSentEvent<String>> events(@PathVariable String id, @RequestParam String after,
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
         return CurrentUser.requireUserId().flatMapMany(userId -> {

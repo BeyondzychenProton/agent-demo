@@ -1,12 +1,15 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.view.SkillVersionView;
+
+import com.beyondzy.demo.contract.PageResult;
 import java.util.List;
 
 /** 草稿编辑和发布。发布会重做检查，校验接口的结果不能当成发布许可。 */
 public interface SkillVersionService {
     SkillVersionView create(long operatorId, CreateRequest request);
 
-    SkillVersionView.Page list(String skillName, String state, int page, int size);
+    PageResult<SkillVersionView.Summary> list(String skillName, String state, int page, int size);
 
     SkillVersionView get(long id);
 

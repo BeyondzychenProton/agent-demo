@@ -1,10 +1,13 @@
 package com.beyondzy.demo.service.display.impl;
 
+import com.beyondzy.demo.domain.display.DisplayMessageBean;
+import com.beyondzy.demo.domain.display.DisplayTurnBean;
 import com.beyondzy.demo.domain.display.DisplayViewBean;
 import com.beyondzy.demo.mapper.display.DisplayMapper;
 import com.beyondzy.demo.service.display.DisplayIndexService;
 import com.beyondzy.demo.support.DbTimes;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,19 +28,32 @@ public class DisplayIndexServiceImpl implements DisplayIndexService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void saveSnapshot(String threadId, long seq, List<Message> messages, List<Turn> turns) {
         // 同事务：删消息/轮次 → 重插 → 更新水位，避免半截快照对外可见。
         LocalDateTime now = DbTimes.now();
         mapper.deleteMessages(threadId);
         mapper.deleteTurns(threadId);
-        for (int i = 0; i < messages.size(); i++) {
-            Message item = messages.get(i);
-            mapper.insertMessage(threadId, i, item.messageId(), item.role(), item.content(), now);
+        if (!messages.isEmpty()) {
+            List<DisplayMessageBean> rows = new ArrayList<>();
+            for (Message item : messages) {
+                DisplayMessageBean row = new DisplayMessageBean();
+                row.setMessageId(item.messageId());
+                row.setRole(item.role());
+                row.setContent(item.content());
+                rows.add(row);
+            }
+            mapper.insertMessages(threadId, rows, now);
         }
-        for (int i = 0; i < turns.size(); i++) {
-            Turn item = turns.get(i);
-            mapper.insertTurn(threadId, i, item.runId(), item.status(), now);
+        if (!turns.isEmpty()) {
+            List<DisplayTurnBean> rows = new ArrayList<>();
+            for (Turn item : turns) {
+                DisplayTurnBean row = new DisplayTurnBean();
+                row.setRunId(item.runId());
+                row.setStatus(item.status());
+                rows.add(row);
+            }
+            mapper.insertTurns(threadId, rows, now);
         }
         mapper.saveSnapshotSeq(threadId, seq, now);
     }
@@ -47,7 +63,7 @@ public class DisplayIndexServiceImpl implements DisplayIndexService {
     public DisplayViewBean findView(String threadId, long seq) { return mapper.findView(threadId, seq); }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void saveView(String threadId, long seq, int format, boolean hasInteractions, String payload) {
         mapper.saveView(threadId, seq, format, hasInteractions, payload, DbTimes.now());
     }

@@ -1,8 +1,11 @@
 package com.beyondzy.demo.web.skill;
 
-import com.beyondzy.demo.service.skill.SkillSupport;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
 import com.beyondzy.demo.service.skill.SkillVersionService;
-import com.beyondzy.demo.service.skill.SkillVersionView;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.service.skill.view.SkillVersionView;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.skill.req.CreateSkillVersionRequest;
 import com.beyondzy.demo.web.skill.req.PublishSkillVersionRequest;
@@ -25,6 +28,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 技能草稿和发布。管理员可以维护版本，发布规则仍由服务端执行。 */
+@Tag(name = "技能版本", description = "技能草稿和发布")
 @RestController
 @RequestMapping("/api/admin/skill-versions")
 public class SkillVersionController {
@@ -37,6 +41,7 @@ public class SkillVersionController {
     }
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "创建技能草稿")
     public Mono<ResponseEntity<SkillVersionView>> create(@RequestBody CreateSkillVersionRequest request) {
         return admin().flatMap(id -> Mono.fromCallable(() -> {
             SkillVersionView created = versions.create(id, new SkillVersionService.CreateRequest(
@@ -47,7 +52,8 @@ public class SkillVersionController {
     }
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<SkillVersionView.Page> list(
+    @Operation(summary = "分页查询技能版本")
+    public Mono<PageResult<SkillVersionView.Summary>> list(
             @RequestParam(required = false) String skillName,
             @RequestParam(required = false) String state,
             @RequestParam(defaultValue = "1") int page,
@@ -57,12 +63,14 @@ public class SkillVersionController {
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "查询技能版本")
     public Mono<SkillVersionView> get(@PathVariable String id) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> versions.get(versionId(id)))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @PutMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "保存技能草稿")
     public Mono<SkillVersionView> update(@PathVariable String id, @RequestBody UpdateSkillVersionRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> versions.update(actor, versionId(id),
                         new SkillVersionService.UpdateRequest(
@@ -72,6 +80,7 @@ public class SkillVersionController {
     }
 
     @GetMapping("/{id}/files/{fileId}")
+    @Operation(summary = "下载版本文件")
     public Mono<ResponseEntity<byte[]>> file(
             @PathVariable String id, @PathVariable String fileId,
             @RequestParam(defaultValue = "false") boolean download) {
@@ -90,6 +99,7 @@ public class SkillVersionController {
     }
 
     @PostMapping(value = "/{id}/validate", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "检查草稿是否可发布")
     public Mono<SkillVersionView.Validation> validate(
             @PathVariable String id, @RequestBody ValidateSkillVersionRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> versions.validate(versionId(id), request.revision()))
@@ -97,6 +107,7 @@ public class SkillVersionController {
     }
 
     @PostMapping(value = "/{id}/publish", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "发布技能草稿")
     public Mono<SkillVersionView.Published> publish(
             @PathVariable String id, @RequestBody PublishSkillVersionRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> versions.publish(actor, versionId(id),

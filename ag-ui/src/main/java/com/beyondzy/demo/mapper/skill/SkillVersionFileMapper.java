@@ -2,6 +2,7 @@ package com.beyondzy.demo.mapper.skill;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.beyondzy.demo.domain.skill.SkillVersionFileBean;
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -45,6 +46,30 @@ public interface SkillVersionFileMapper extends BaseMapper<SkillVersionFileBean>
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertFile(SkillVersionFileBean row);
+
+    @Insert("""
+            <script>
+            INSERT INTO ai_skill_version_file (
+                version_id, resource_path, file_kind, content, content_sha256, byte_size, gmt_create, gmt_modified)
+            VALUES
+            <foreach collection="rows" item="row" separator=",">
+                (#{row.versionId}, #{row.resourcePath}, #{row.fileKind}, #{row.content}, #{row.contentSha256},
+                 #{row.byteSize}, #{row.gmtCreate}, #{row.gmtModified})
+            </foreach>
+            </script>
+            """)
+    int insertFiles(@Param("rows") List<SkillVersionFileBean> rows);
+
+    @Select("""
+            <script>
+            SELECT id, version_id, resource_path, file_kind, content, content_sha256, byte_size
+            FROM ai_skill_version_file
+            WHERE version_id IN
+            <foreach collection="versionIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            ORDER BY version_id, resource_path
+            </script>
+            """)
+    List<SkillVersionFileBean> listContentByVersions(@Param("versionIds") Collection<Long> versionIds);
 
     @Delete("DELETE FROM ai_skill_version_file WHERE version_id = #{versionId}")
     int deleteByVersion(@Param("versionId") long versionId);

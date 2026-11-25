@@ -2,11 +2,14 @@ package com.beyondzy.demo.config.skill;
 
 import com.beyondzy.demo.domain.skill.SkillBean;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
+import com.beyondzy.demo.domain.skill.SkillVersionFileBean;
+import com.beyondzy.demo.enums.skill.SkillFileKind;
+import com.beyondzy.demo.enums.skill.SkillVersionState;
 import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
-import com.beyondzy.demo.service.skill.SkillJson;
-import com.beyondzy.demo.service.skill.SkillSupport;
+import com.beyondzy.demo.service.skill.support.SkillJson;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.skill.AgentSkill;
@@ -15,8 +18,10 @@ import io.agentscope.core.skill.repository.AgentSkillRepositoryInfo;
 import io.agentscope.core.skill.repository.RuntimeContextSkillRepository;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** 共享仓库不缓存用户目录。每轮在 RuntimeContext 中保存固定版本内容快照。 */
@@ -42,27 +47,50 @@ public final class VersionedSkillRepository implements RuntimeContextSkillReposi
 
     public Snapshot capture(String agentId, String userId) {
         Set<String> allowed = Set.copyOf(visibility.namesFor(agentId, userId));
-        List<AgentSkill> result = new ArrayList<>();
+        List<SkillBean> selected = new ArrayList<>();
+        List<Long> versionIds = new ArrayList<>();
         for (SkillBean binding : bindings.listBound(agentId)) {
-            if (!allowed.contains(binding.getName()) || !"0".equals(binding.getStatus())) continue;
+            if (!allowed.contains(binding.getName()) || !SkillBean.STATUS_ENABLED.equals(binding.getStatus())) continue;
+            selected.add(binding);
+            if (binding.getVersionId() != null) versionIds.add(binding.getVersionId());
+        }
+        Map<Long, SkillVersionBean> versionById = new HashMap<>();
+        if (!versionIds.isEmpty()) {
+            for (SkillVersionBean version : versions.listByIds(versionIds)) {
+                versionById.putIfAbsent(version.getId(), version);
+            }
+        }
+        List<Long> contentIds = new ArrayList<>();
+        for (SkillBean binding : selected) {
+            SkillVersionBean version = published(binding, versionById);
+            if (version != null) contentIds.add(version.getId());
+        }
+        Map<Long, List<SkillVersionFileBean>> filesByVersion = new HashMap<>();
+        if (!contentIds.isEmpty()) {
+            for (SkillVersionFileBean file : files.listContentByVersions(contentIds)) {
+                filesByVersion.computeIfAbsent(file.getVersionId(), ignored -> new ArrayList<>()).add(file);
+            }
+        }
+        List<AgentSkill> result = new ArrayList<>();
+        Long parsedUser = null;
+        for (SkillBean binding : selected) {
             if (binding.getVersionId() == null) {
                 // 尚未迁移的旧绑定只读运行内容；发布前会先快照并固定，不在启动期写数据。
                 AgentSkill skill = legacy.getSkill(binding.getName());
                 if (skill != null) result.add(skill);
                 continue;
             }
-            SkillVersionBean version = versions.find(binding.getVersionId());
-            if (version == null || !"PUBLISHED".equals(version.getState())
-                    || !binding.getId().equals(version.getSkillId())
-                    || !binding.getName().equals(version.getSkillName())) continue;
+            SkillVersionBean version = published(binding, versionById);
+            if (version == null) continue;
+            if (parsedUser == null) parsedUser = Long.parseLong(userId);
             SkillBean placement = new SkillBean();
             placement.setVisibleScope(version.getVisibleScope());
             placement.setOwnerDeptId(version.getOwnerDeptId());
             placement.setCreateBy(version.getCreatedBy());
-            if (!visibility.visibleTo(placement, Long.parseLong(userId))) continue;
+            if (!visibility.visibleTo(placement, parsedUser)) continue;
             LinkedHashMap<String, String> resources = new LinkedHashMap<>();
-            for (var file : files.listContent(version.getId())) {
-                if (("REFERENCE".equals(file.getFileKind()) || "SCRIPT".equals(file.getFileKind()))
+            for (SkillVersionFileBean file : filesByVersion.getOrDefault(version.getId(), List.of())) {
+                if ((SkillFileKind.REFERENCE.name().equals(file.getFileKind()) || SkillFileKind.SCRIPT.name().equals(file.getFileKind()))
                         && SkillSupport.utf8(file.getContent())) {
                     resources.put(file.getResourcePath(), new String(file.getContent(), StandardCharsets.UTF_8));
                 }
@@ -81,6 +109,15 @@ public final class VersionedSkillRepository implements RuntimeContextSkillReposi
             result.add(new AgentSkill(metadata, version.getSkillContent(), resources, getSource()));
         }
         return new Snapshot(result);
+    }
+
+    private static SkillVersionBean published(SkillBean binding, Map<Long, SkillVersionBean> versionById) {
+        if (binding.getVersionId() == null) return null;
+        SkillVersionBean version = versionById.get(binding.getVersionId());
+        if (version == null || !SkillVersionState.PUBLISHED.name().equals(version.getState())
+                || !binding.getId().equals(version.getSkillId())
+                || !binding.getName().equals(version.getSkillName())) return null;
+        return version;
     }
 
     @Override public List<AgentSkill> getAllSkills(RuntimeContext context) {

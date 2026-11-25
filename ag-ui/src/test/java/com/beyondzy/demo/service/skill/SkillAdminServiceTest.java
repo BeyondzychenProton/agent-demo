@@ -1,5 +1,8 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.support.SkillDraft;
+import com.beyondzy.demo.service.skill.view.SkillAdminView;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -7,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.contract.PageResult;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import io.agentscope.core.skill.AgentSkill;
@@ -55,7 +59,7 @@ class SkillAdminServiceTest {
             assertEquals("references/faq.md", detail.files().get(0).path());
             assertFalse(detail.bound());
 
-            SkillAdminView.Page page = harness.admin.list("meeting", "enabled", 1, 20);
+            PageResult<SkillAdminView.Item> page = harness.admin.list("meeting", "enabled", 1, 20);
             assertEquals(1, page.total());
             assertEquals("meeting-booking", page.items().get(0).name());
             assertTrue(harness.jdbc.queryForObject(
@@ -74,7 +78,7 @@ class SkillAdminServiceTest {
                     "weekly-report", "100%_done!", "正文", "0", null, "0", List.of()));
 
             // q= 空、state=all：MySQL 预编译若把 ESCAPE 反斜杠当成引号，绑 OFFSET 会 500。
-            SkillAdminView.Page page = harness.admin.list("", "all", 1, 20);
+            PageResult<SkillAdminView.Item> page = harness.admin.list("", "all", 1, 20);
             assertEquals(2, page.total());
             assertEquals(List.of("meeting-booking", "weekly-report"),
                     page.items().stream().map(SkillAdminView.Item::name).toList());
@@ -84,7 +88,6 @@ class SkillAdminServiceTest {
             assertEquals(1, harness.admin.list("_", "all", 1, 20).total());
             assertEquals(1, harness.admin.list("!", "all", 1, 20).total());
             assertMysqlPlaceholdersIntact("adminPage");
-            assertMysqlPlaceholdersIntact("adminCount");
         }
     }
 

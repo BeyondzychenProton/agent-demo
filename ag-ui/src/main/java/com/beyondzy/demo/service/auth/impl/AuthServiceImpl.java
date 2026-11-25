@@ -22,7 +22,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public LoginResult login(String phone, String password) {
         if (phone == null || phone.isBlank() || password == null || password.isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "手机号和密码不能为空");

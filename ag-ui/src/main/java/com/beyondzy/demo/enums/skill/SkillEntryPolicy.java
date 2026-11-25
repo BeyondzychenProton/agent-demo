@@ -1,8 +1,10 @@
 package com.beyondzy.demo.enums.skill;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.beyondzy.demo.exception.skill.SkillException;
 
 /** 入口处理。KEEP_ORIGINAL 保留原包入口；PLATFORM_ENTRY 生成平台入口。 */
+@Schema(description = "入口处理。KEEP_ORIGINAL 保留原包入口；PLATFORM_ENTRY 生成平台入口。")
 public enum SkillEntryPolicy {
     KEEP_ORIGINAL,
     PLATFORM_ENTRY;

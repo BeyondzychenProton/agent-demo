@@ -1,8 +1,10 @@
 package com.beyondzy.demo.enums.skill;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.beyondzy.demo.exception.skill.SkillException;
 
 /** 导入批次状态。CONFIRMED、CANCELLED、EXPIRED 是终态。 */
+@Schema(description = "导入批次状态。CONFIRMED、CANCELLED、EXPIRED 是终态。")
 public enum SkillImportState {
     UPLOADED,
     CHECKED,

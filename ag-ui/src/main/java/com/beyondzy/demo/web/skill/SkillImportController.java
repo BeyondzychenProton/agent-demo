@@ -1,10 +1,14 @@
 package com.beyondzy.demo.web.skill;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.exception.skill.SkillException;
-import com.beyondzy.demo.service.skill.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
 import com.beyondzy.demo.service.skill.SkillImportService;
-import com.beyondzy.demo.service.skill.SkillImportView;
-import com.beyondzy.demo.service.skill.SkillPackageInspector;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.service.skill.view.SkillImportView;
+import com.beyondzy.demo.service.skill.support.SkillPackageInspector;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.skill.req.ImportCancelRequest;
 import com.beyondzy.demo.web.skill.req.ImportConfigRequest;
@@ -34,6 +38,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 技能包导入。批次只对创建它的管理员可见。 */
+@Tag(name = "技能导入", description = "技能包导入，批次只对创建它的管理员可见")
 @RestController
 @RequestMapping("/api/admin/skill-imports")
 public class SkillImportController {
@@ -46,6 +51,7 @@ public class SkillImportController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "上传技能包")
     public Mono<ResponseEntity<SkillImportView>> upload(
             @RequestHeader("Idempotency-Key") String requestKey, @RequestPart("file") FilePart file) {
         int max = SkillPackageInspector.markdownName(file.filename())
@@ -61,7 +67,8 @@ public class SkillImportController {
     }
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<SkillImportView.Page> list(
+    @Operation(summary = "分页查询导入批次")
+    public Mono<PageResult<SkillImportView.Summary>> list(
             @RequestParam(required = false) String state,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -70,12 +77,14 @@ public class SkillImportController {
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "查询导入批次")
     public Mono<SkillImportView> get(@PathVariable String id) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> imports.get(actor, importId(id)))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @PutMapping(value = "/{id}/configuration", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "保存导入配置")
     public Mono<SkillImportView> configure(@PathVariable String id, @RequestBody ImportConfigRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> imports.configure(
                         actor, importId(id), request.revision(), request.targetName(), request.entryPolicy(),
@@ -84,6 +93,7 @@ public class SkillImportController {
     }
 
     @PutMapping(value = "/{id}/dependencies", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "保存依赖映射")
     public Mono<SkillImportView> dependencies(@PathVariable String id, @RequestBody ImportDependenciesRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> imports.saveDependencies(
                         actor, importId(id), request.revision(), request.items()))
@@ -91,6 +101,7 @@ public class SkillImportController {
     }
 
     @PostMapping(value = "/{id}/confirm", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "确认导入")
     public Mono<SkillImportView> confirm(@PathVariable String id, @RequestBody ImportConfirmRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> imports.confirm(
                         actor, importId(id), request.revision(), request.acknowledgeExisting(),
@@ -99,12 +110,14 @@ public class SkillImportController {
     }
 
     @PostMapping(value = "/{id}/cancel", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "取消导入")
     public Mono<SkillImportView> cancel(@PathVariable String id, @RequestBody ImportCancelRequest request) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> imports.cancel(actor, importId(id), request.revision()))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @GetMapping("/{id}/source")
+    @Operation(summary = "下载导入原件")
     public Mono<ResponseEntity<byte[]>> source(@PathVariable String id) {
         return admin().flatMap(actor -> Mono.fromCallable(() -> {
             SkillImportView.SourceFile file = imports.source(actor, importId(id));
@@ -121,7 +134,7 @@ public class SkillImportController {
     }
 
     private static long importId(String id) {
-        return com.beyondzy.demo.service.skill.SkillSupport.positiveId(id, "IMPORT_NOT_FOUND", "导入批次不存在");
+        return SkillSupport.positiveId(id, "IMPORT_NOT_FOUND", "导入批次不存在");
     }
 
     private static Mono<byte[]> limited(FilePart file, int max) {

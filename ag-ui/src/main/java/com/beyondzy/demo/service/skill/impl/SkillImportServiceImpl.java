@@ -2,6 +2,9 @@ package com.beyondzy.demo.service.skill.impl;
 
 import com.beyondzy.demo.domain.skill.SkillBean;
 import com.beyondzy.demo.domain.skill.SkillImportBean;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.contract.Pages;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
 import com.beyondzy.demo.domain.skill.SkillVersionDependencyBean;
 import com.beyondzy.demo.domain.skill.SkillVersionFileBean;
@@ -9,6 +12,7 @@ import com.beyondzy.demo.enums.skill.SkillContentPolicy;
 import com.beyondzy.demo.enums.skill.SkillEntryPolicy;
 import com.beyondzy.demo.enums.skill.SkillImportState;
 import com.beyondzy.demo.enums.skill.SkillMappingState;
+import com.beyondzy.demo.enums.skill.SkillVersionState;
 import com.beyondzy.demo.enums.skill.SkillTargetKind;
 import com.beyondzy.demo.enums.skill.SkillVisibleScope;
 import com.beyondzy.demo.exception.skill.SkillException;
@@ -17,19 +21,20 @@ import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionDependencyMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
-import com.beyondzy.demo.service.skill.SkillCheckDocument;
-import com.beyondzy.demo.service.skill.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillCheckDocument;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
 import com.beyondzy.demo.service.skill.SkillImportService;
-import com.beyondzy.demo.service.skill.SkillImportView;
-import com.beyondzy.demo.service.skill.SkillJson;
-import com.beyondzy.demo.service.skill.SkillPackageInspector;
+import com.beyondzy.demo.service.skill.view.SkillImportView;
+import com.beyondzy.demo.service.skill.support.SkillJson;
+import com.beyondzy.demo.service.skill.support.SkillPackageInspector;
 import com.beyondzy.demo.service.skill.SkillResourceCatalog;
-import com.beyondzy.demo.service.skill.SkillSourceRules;
-import com.beyondzy.demo.service.skill.SkillSupport;
-import com.beyondzy.demo.service.skill.SkillTimes;
+import com.beyondzy.demo.service.skill.support.SkillSourceRules;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
+import com.beyondzy.demo.service.skill.support.SkillTimes;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -126,13 +131,17 @@ public class SkillImportServiceImpl implements SkillImportService {
     }
 
     @Override
-    public SkillImportView.Page list(long operatorId, String state, int page, int size) {
+    public PageResult<SkillImportView.Summary> list(long operatorId, String state, int page, int size) {
         page(page, size);
         String filter = state == null || state.isBlank() ? null : SkillImportState.parse(state).name();
+        Page<SkillImportBean> query = new Page<>(page, size, false);
+        imports.page(query, operatorId, filter);
+        LocalDateTime now = SkillTimes.now();
+        List<SkillImportMapper.Due> expiring = new ArrayList<>();
         List<SkillImportView.Summary> items = new ArrayList<>();
-        for (SkillImportBean row : imports.page(operatorId, filter, size, (long) (page - 1) * size)) {
+        for (SkillImportBean row : query.getRecords()) {
             if (due(row)) {
-                imports.expire(row.getId(), row.getRevision() == null ? 0 : row.getRevision(), SkillTimes.now());
+                expiring.add(new SkillImportMapper.Due(row.getId(), row.getRevision() == null ? 0 : row.getRevision()));
                 row.setState(SkillImportState.EXPIRED.name());
             }
             items.add(new SkillImportView.Summary(
@@ -142,11 +151,12 @@ public class SkillImportServiceImpl implements SkillImportService {
                     step(row, null),
                     row.getFilename(),
                     row.getPackageSha256(),
-                    row.getSourceAvailable() != null && row.getSourceAvailable() == 1,
+                    Objects.equals(row.getSourceAvailable(), SkillImportBean.SOURCE_AVAILABLE),
                     SkillTimes.format(row.getExpiresAt()),
                     row.getTargetName()));
         }
-        return new SkillImportView.Page(items, imports.count(operatorId, filter), page, size);
+        if (!expiring.isEmpty()) imports.expireAll(expiring, now);
+        return new PageResult<>(items, imports.count(operatorId, filter), page, size);
     }
 
     @Override
@@ -257,7 +267,7 @@ public class SkillImportServiceImpl implements SkillImportService {
     public SkillImportView.SourceFile source(long operatorId, long id) {
         SkillImportBean row = open(operatorId, imports.find(id));
         byte[] body = packageBody(id, operatorId);
-        if (body == null || row.getSourceAvailable() == null || row.getSourceAvailable() == 0) {
+        if (body == null || row.getSourceAvailable() == null || Objects.equals(row.getSourceAvailable(), SkillImportBean.SOURCE_MISSING)) {
             fail(410, "SOURCE_PURGED", "原包已清理，不能下载");
         }
         return new SkillImportView.SourceFile(row.getFilename(), body);
@@ -311,7 +321,7 @@ public class SkillImportServiceImpl implements SkillImportService {
         version.setSkillName(row.getTargetName());
         version.setSkillId(skillId);
         version.setPackageVersion(inspection.packageVersion());
-        version.setState("DRAFT");
+        version.setState(SkillVersionState.DRAFT.name());
         version.setDescription(inspection.description());
         version.setSkillContent(proposed);
         version.setMetadataJson(SkillSupport.metadata(row.getTargetName(), inspection.description()));
@@ -324,17 +334,21 @@ public class SkillImportServiceImpl implements SkillImportService {
         version.setGmtCreate(now);
         version.setGmtModified(now);
         insertVersion(version);
-        for (SkillPackageInspector.FileBytes file : inspection.files()) insertFile(version.getId(), file, now);
+        List<SkillVersionFileBean> fileRows = new ArrayList<>();
+        for (SkillPackageInspector.FileBytes file : inspection.files()) fileRows.add(fileRow(version.getId(), file, now));
+        if (!fileRows.isEmpty()) files.insertFiles(fileRows);
         int pending = 0;
+        List<SkillVersionDependencyBean> dependencyRows = new ArrayList<>();
         for (SkillCheckDocument.DependencyDraft draft : document.dependencyDrafts) {
-            if ("PENDING".equals(draft.mappingState)) pending++;
-            insertDependency(version.getId(), draft, now);
+            if (SkillMappingState.PENDING.name().equals(draft.mappingState)) pending++;
+            dependencyRows.add(dependencyRow(version.getId(), draft, now));
         }
+        if (!dependencyRows.isEmpty()) dependencies.insertDependencies(dependencyRows);
         List<String> warnings = warnings(document);
         SkillImportView.Result result = new SkillImportView.Result(
                 SkillSupport.id(version.getId()),
                 version.getSkillName(),
-                "DRAFT",
+                SkillVersionState.DRAFT.name(),
                 version.getPackageVersion(),
                 null,
                 inspection.files().size(),
@@ -368,7 +382,7 @@ public class SkillImportServiceImpl implements SkillImportService {
         if (last != null) throw last;
     }
 
-    private void insertFile(long versionId, SkillPackageInspector.FileBytes file, LocalDateTime now) {
+    private static SkillVersionFileBean fileRow(long versionId, SkillPackageInspector.FileBytes file, LocalDateTime now) {
         SkillVersionFileBean row = new SkillVersionFileBean();
         row.setVersionId(versionId);
         row.setResourcePath(file.path());
@@ -378,15 +392,15 @@ public class SkillImportServiceImpl implements SkillImportService {
         row.setByteSize(file.body().length);
         row.setGmtCreate(now);
         row.setGmtModified(now);
-        files.insertFile(row);
+        return row;
     }
 
-    private void insertDependency(long versionId, SkillCheckDocument.DependencyDraft draft, LocalDateTime now) {
+    private static SkillVersionDependencyBean dependencyRow(long versionId, SkillCheckDocument.DependencyDraft draft, LocalDateTime now) {
         SkillVersionDependencyBean row = new SkillVersionDependencyBean();
         row.setVersionId(versionId);
         row.setSourceKey(draft.sourceKey);
         row.setCapabilityKey(draft.capabilityKey);
-        row.setRequiredFlag(draft.required ? "1" : "0");
+        row.setRequiredFlag(draft.required ? SkillVersionDependencyBean.REQUIRED : SkillVersionDependencyBean.OPTIONAL);
         row.setTargetKind(draft.targetKind);
         row.setTargetProviderKey(draft.targetProviderKey);
         row.setTargetToolKey(draft.targetToolKey);
@@ -394,7 +408,7 @@ public class SkillImportServiceImpl implements SkillImportService {
         row.setReason(draft.reason);
         row.setGmtCreate(now);
         row.setGmtModified(now);
-        dependencies.insertDependency(row);
+        return row;
     }
 
     private SkillCheckDocument.DependencyDraft apply(SkillCheckDocument.DependencyDraft source, DependencyInput item) {
@@ -477,7 +491,7 @@ public class SkillImportServiceImpl implements SkillImportService {
                 step(row, document),
                 row.getFilename(),
                 row.getPackageSha256(),
-                row.getSourceAvailable() != null && row.getSourceAvailable() == 1,
+                Objects.equals(row.getSourceAvailable(), SkillImportBean.SOURCE_AVAILABLE),
                 SkillTimes.format(row.getExpiresAt()),
                 configuration,
                 info,
@@ -506,12 +520,12 @@ public class SkillImportServiceImpl implements SkillImportService {
             }
         }
         for (SkillCheckDocument.DependencyDraft draft : document.dependencyDrafts) {
-            if (!"CONFIRMED".equals(draft.mappingState) && !"PENDING".equals(draft.mappingState)) {
+            if (!SkillMappingState.CONFIRMED.name().equals(draft.mappingState) && !SkillMappingState.PENDING.name().equals(draft.mappingState)) {
                 blockers.add(new SkillImportView.Blocker(
                         "MAPPING_NOT_CONFIRMED", draft.sourceKey, null, "依赖尚未确认"));
-            } else if ("PENDING".equals(draft.mappingState) && !hasText(draft.reason)) {
+            } else if (SkillMappingState.PENDING.name().equals(draft.mappingState) && !hasText(draft.reason)) {
                 blockers.add(new SkillImportView.Blocker("REASON_REQUIRED", draft.sourceKey, null, "待接入依赖需要原因"));
-            } else if ("PENDING".equals(draft.mappingState) && draft.required && "confirm".equals(draft.gate)) {
+            } else if (SkillMappingState.PENDING.name().equals(draft.mappingState) && draft.required && "confirm".equals(draft.gate)) {
                 blockers.add(new SkillImportView.Blocker(
                         "MAPPING_NOT_CONFIRMED", draft.sourceKey, null, "该依赖必须在导入前绑定"));
             }
@@ -536,7 +550,7 @@ public class SkillImportServiceImpl implements SkillImportService {
             if ("WARN".equals(check.level())) warnings.add(check.message());
         }
         for (SkillCheckDocument.DependencyDraft draft : document.dependencyDrafts) {
-            if ("PENDING".equals(draft.mappingState)) {
+            if (SkillMappingState.PENDING.name().equals(draft.mappingState)) {
                 warnings.add("仍有待接入依赖");
                 break;
             }
@@ -731,7 +745,7 @@ public class SkillImportServiceImpl implements SkillImportService {
     }
 
     private static void page(int page, int size) {
-        if (page < 1 || size < 1 || size > 100) fail(400, "INVALID_ARGUMENT", "分页参数不合法");
+        if (!Pages.valid(page, size)) fail(400, "INVALID_ARGUMENT", "分页参数不合法");
     }
 
     private static boolean hasText(String value) {

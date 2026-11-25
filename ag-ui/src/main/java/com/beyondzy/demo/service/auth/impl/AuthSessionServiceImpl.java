@@ -32,7 +32,7 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CreatedSession create(long userId) {
         LocalDateTime now = DbTimes.now();
         String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
@@ -56,7 +56,7 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ValidatedSession validateAndMaybeRenew(String rawToken) {
         AuthSessionBean row = findValidByRawToken(rawToken);
         if (row == null) return null;
@@ -73,13 +73,13 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteById(long id) {
         mapper.deleteById(id);
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deleteByRawToken(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) return;
         mapper.delete(Wrappers.<AuthSessionBean>lambdaQuery()

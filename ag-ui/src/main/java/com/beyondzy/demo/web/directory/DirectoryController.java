@@ -1,10 +1,13 @@
 package com.beyondzy.demo.web.directory;
 
 import com.beyondzy.demo.contract.directory.DirectoryPush;
+import com.beyondzy.demo.enums.mcp.McpProvider;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.directory.DirectoryService;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.service.directory.DirectoryService.PushStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,9 +24,11 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 满天星推送和管理员通讯录查询入口。 */
+@Tag(name = "通讯录", description = "满天星推送和管理员通讯录查询")
 @RestController
 public class DirectoryController {
-    public static final String PUSH_PATH = "/api/integrations/mantianxing/v1/directory/changes";
+    public static final String PUSH_PATH =
+            "/api/integrations/" + McpProvider.Code.MANTIANXING + "/v1/directory/changes";
 
     private final DirectoryService directory;
     private final UserService users;
@@ -38,6 +43,7 @@ public class DirectoryController {
 
     @PostMapping(path = PUSH_PATH, consumes = "application/json")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "接收通讯录变更")
     public Mono<Void> push(@RequestHeader(name = "X-MTX-Sync-Token", required = false) String token,
                            @RequestBody Mono<DirectoryPush> body) {
         if (syncToken.length == 0) {
@@ -71,6 +77,7 @@ public class DirectoryController {
     }
 
     @GetMapping("/api/admin/directory")
+    @Operation(summary = "查询通讯录")
     public Mono<DirectoryService.Directory> read() {
         return CurrentUser.require().flatMap(principal -> Mono.fromCallable(() -> {
             var user = users.findById(principal.userId());

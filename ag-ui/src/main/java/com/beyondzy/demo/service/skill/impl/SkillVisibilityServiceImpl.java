@@ -4,6 +4,7 @@ import com.beyondzy.demo.domain.directory.DirectoryDepartmentBean;
 import com.beyondzy.demo.domain.directory.DirectoryUserBean;
 import com.beyondzy.demo.domain.skill.SkillBean;
 import com.beyondzy.demo.domain.user.UserBean;
+import com.beyondzy.demo.enums.skill.SkillVisibleScope;
 import com.beyondzy.demo.mapper.directory.DirectoryDepartmentMapper;
 import com.beyondzy.demo.mapper.directory.DirectoryUserMapper;
 import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
@@ -11,6 +12,7 @@ import com.beyondzy.demo.mapper.user.UserMapper;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 /** 可见范围只看技能行上的三档，不读部门授权表。 */
@@ -38,7 +40,7 @@ public class SkillVisibilityServiceImpl implements SkillVisibilityService {
         if (userId == null || viewer(userId) == null) return List.of();
         List<String> names = new ArrayList<>();
         for (SkillBean skill : bindings.listBound(agentId)) {
-            if (!"0".equals(skill.getStatus())) continue;
+            if (!SkillBean.STATUS_ENABLED.equals(skill.getStatus())) continue;
             if (visibleTo(skill, userId)) names.add(skill.getName());
         }
         return List.copyOf(names);
@@ -60,11 +62,11 @@ public class SkillVisibilityServiceImpl implements SkillVisibilityService {
         Viewer viewer = viewer(appUserId);
         if (viewer == null || skill == null) return false;
         String scope = skill.getVisibleScope();
-        if (scope == null || scope.isBlank() || "0".equals(scope)) return true;
-        if ("1".equals(scope)) {
+        if (scope == null || scope.isBlank() || SkillVisibleScope.PUBLIC.code().equals(scope)) return true;
+        if (SkillVisibleScope.DEPARTMENT.code().equals(scope)) {
             return viewer.departmentId() != null && viewer.departmentId().equals(skill.getOwnerDeptId());
         }
-        if ("2".equals(scope)) {
+        if (SkillVisibleScope.OWNER.code().equals(scope)) {
             return skill.getCreateBy() != null && skill.getCreateBy().equals(viewer.userId());
         }
         return false;
@@ -83,15 +85,15 @@ public class SkillVisibilityServiceImpl implements SkillVisibilityService {
 
     private Viewer viewer(long appUserId) {
         UserBean user = users.findSkillViewer(appUserId);
-        if (user == null || user.getIsDeleted() == null || user.getIsDeleted() != 0) return null;
+        if (user == null || !Objects.equals(user.getIsDeleted(), UserBean.NOT_DELETED)) return null;
         return new Viewer(user.getId(), departmentOf(user.getMantianxingUserId()));
     }
 
     private Long departmentOf(Long mantianxingUserId) {
         if (mantianxingUserId == null) return null;
         DirectoryUserBean member = directoryUsers.findSkillViewer(mantianxingUserId);
-        if (member == null || member.getIsDeleted() == null || member.getIsDeleted() != 0) return null;
-        if (!"0".equals(member.getStatus()) || member.getDepartmentId() == null) return null;
+        if (member == null || !Objects.equals(member.getIsDeleted(), DirectoryUserBean.NOT_DELETED)) return null;
+        if (!DirectoryUserBean.STATUS_ENABLED.equals(member.getStatus()) || member.getDepartmentId() == null) return null;
         if (!activeDepartment(member.getDepartmentId())) return null;
         return member.getDepartmentId();
     }
@@ -99,9 +101,8 @@ public class SkillVisibilityServiceImpl implements SkillVisibilityService {
     private boolean activeDepartment(long departmentId) {
         DirectoryDepartmentBean department = departments.findSkillViewer(departmentId);
         return department != null
-                && department.getIsDeleted() != null
-                && department.getIsDeleted() == 0
-                && "0".equals(department.getStatus());
+                && Objects.equals(department.getIsDeleted(), DirectoryDepartmentBean.NOT_DELETED)
+                && DirectoryDepartmentBean.STATUS_ENABLED.equals(department.getStatus());
     }
 
     private record Viewer(long userId, Long departmentId) {}

@@ -60,7 +60,7 @@ public class ReadModelPersistenceServiceImpl implements ReadModelPersistenceServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void invalidate(String thread) {
         mapper.deleteContent(thread);
         mapper.deleteChanges(thread);
@@ -78,7 +78,7 @@ public class ReadModelPersistenceServiceImpl implements ReadModelPersistenceServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void commit(CommitBatch batch) {
         CommitBatch.HeadWrite head = batch.head();
         String thread = head.thread();
@@ -133,15 +133,13 @@ public class ReadModelPersistenceServiceImpl implements ReadModelPersistenceServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void cleanup(long changeTtlCutoff, long snapshotTtlCutoff) {
         LocalDateTime changeCutoff = DbTimes.ofEpochMilli(changeTtlCutoff);
         LocalDateTime snapshotCutoff = DbTimes.ofEpochMilli(snapshotTtlCutoff);
         mapper.deleteChangesBefore(changeCutoff);
         List<ReadModelStaleItemBean> stale = mapper.findStaleItems(changeCutoff, snapshotCutoff);
-        for (ReadModelStaleItemBean item : stale) {
-            mapper.deleteItemVersion(item.getThread(), item.getId(), item.getRevision());
-        }
+        if (!stale.isEmpty()) mapper.deleteItemVersions(stale);
         mapper.deleteOrphanContent();
         mapper.deleteOrphanBlocks();
     }

@@ -45,7 +45,11 @@ function indexDirectory({ departments, users }: Directory) {
   for (const department of departments) visit(department);
 
   const membersByDepartment = new Map<string, Member[]>();
+  const activeCountByDepartment = new Map<string, number>();
+  let activeMemberCount = 0;
   for (const member of users) {
+    const active = member.status === "0";
+    if (active) activeMemberCount++;
     let id = member.departmentId;
     const counted = new Set<string>();
     while (id && byId.has(id) && !counted.has(id)) {
@@ -53,10 +57,11 @@ function indexDirectory({ departments, users }: Directory) {
       const members = membersByDepartment.get(id) ?? [];
       members.push(member);
       membersByDepartment.set(id, members);
+      if (active) activeCountByDepartment.set(id, (activeCountByDepartment.get(id) ?? 0) + 1);
       id = byId.get(id)!.parentId;
     }
   }
-  return { byId, tree, membersByDepartment };
+  return { byId, tree, membersByDepartment, activeCountByDepartment, activeMemberCount };
 }
 
 export function OrganizationDirectory({ onDirectory, onMember, onDepartment }: { onDirectory?: (value: Directory) => void; onMember?: (member: Member) => void; onDepartment?: (id: string) => void }) {
@@ -66,7 +71,7 @@ export function OrganizationDirectory({ onDirectory, onMember, onDepartment }: {
   const [request, setRequest] = useState(0);
   const [departmentId, setDepartmentId] = useState("");
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("0");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -117,9 +122,10 @@ export function OrganizationDirectory({ onDirectory, onMember, onDepartment }: {
   return <div className="admin-workspace">
     <section className="admin-org admin-card">
       <h2>组织架构</h2>
+      <small className="admin-muted">人数仅统计已启用成员</small>
       <div>
         <button onClick={() => selectDepartment("")} className={!departmentId ? "selected" : ""}>
-          <span>全部成员</span><span>{result.users.length} 位</span>
+          <span>全部成员</span><span>{directory.activeMemberCount} 位</span>
         </button>
         {directory.tree.map(({ department, depth }) => <button key={department.id}
           onClick={() => selectDepartment(department.id)}
@@ -127,7 +133,7 @@ export function OrganizationDirectory({ onDirectory, onMember, onDepartment }: {
           <span style={{ paddingInlineStart: Math.min(depth, 6) * 12 }}>
             {department.name}{department.status === "1" && <small> · 已停用</small>}
           </span>
-          <span>{directory.membersByDepartment.get(department.id)?.length ?? 0} 位</span>
+          <span>{directory.activeCountByDepartment.get(department.id) ?? 0} 位</span>
         </button>)}
       </div>
     </section>

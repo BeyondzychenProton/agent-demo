@@ -1,8 +1,10 @@
 package com.beyondzy.demo.enums.skill;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.beyondzy.demo.exception.skill.SkillException;
 
 /** 映射是否已被管理员确认。建议映射不等于确认。 */
+@Schema(description = "映射是否已被管理员确认。建议映射不等于确认。")
 public enum SkillMappingState {
     SUGGESTED,
     CONFIRMED,

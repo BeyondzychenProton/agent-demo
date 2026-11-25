@@ -1,12 +1,15 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.view.SkillImportView;
+
+import com.beyondzy.demo.contract.PageResult;
 import java.util.List;
 
 /** 导入批次：上传、检查、映射和确认。确认前不写运行技能。 */
 public interface SkillImportService {
     SkillImportView.Created upload(long operatorId, String requestKey, String filename, byte[] body);
 
-    SkillImportView.Page list(long operatorId, String state, int page, int size);
+    PageResult<SkillImportView.Summary> list(long operatorId, String state, int page, int size);
 
     SkillImportView get(long operatorId, long id);
 

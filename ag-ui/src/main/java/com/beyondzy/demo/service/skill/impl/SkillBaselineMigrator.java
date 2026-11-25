@@ -5,6 +5,8 @@ import com.beyondzy.demo.domain.skill.SkillResourceBean;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
 import com.beyondzy.demo.domain.skill.SkillVersionFileBean;
 import com.beyondzy.demo.enums.skill.SkillFileKind;
+import com.beyondzy.demo.enums.skill.SkillVersionState;
+import com.beyondzy.demo.enums.skill.SkillVisibleScope;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
@@ -12,13 +14,17 @@ import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
 import com.beyondzy.demo.mapper.skill.SkillReleaseMapper;
 import com.beyondzy.demo.mapper.skill.AgentSkillMapper;
-import com.beyondzy.demo.service.skill.SkillDocuments;
-import com.beyondzy.demo.service.skill.SkillJson;
-import com.beyondzy.demo.service.skill.SkillSourceRules;
-import com.beyondzy.demo.service.skill.SkillSupport;
-import com.beyondzy.demo.service.skill.SkillTimes;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillJson;
+import com.beyondzy.demo.service.skill.support.SkillSourceRules;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
+import com.beyondzy.demo.service.skill.support.SkillTimes;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,22 +53,36 @@ public class SkillBaselineMigrator {
         this.bindings = bindings;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public int migrate(long fallbackUserId) {
+        List<SkillBean> all = skills.listAll();
+        List<Long> ids = new ArrayList<>();
+        for (SkillBean skill : all) {
+            if (skill.getId() != null) ids.add(skill.getId());
+        }
+        Map<Long, Long> currentBySkill = new LinkedHashMap<>();
+        if (!ids.isEmpty()) {
+            for (SkillReleaseMapper.ReleaseCurrent row : releases.currents(ids)) {
+                currentBySkill.putIfAbsent(row.skillId(), row.currentVersionId());
+            }
+        }
+        List<AgentSkillMapper.VersionPin> pins = new ArrayList<>();
         int created = 0;
-        for (SkillBean skill : skills.listAll()) {
-            if (releases.current(skill.getId()) != null) {
-                bindings.pinMissing(skill.getId(), releases.current(skill.getId()));
+        for (SkillBean skill : all) {
+            Long current = skill.getId() == null ? null : currentBySkill.get(skill.getId());
+            if (current != null) {
+                pins.add(new AgentSkillMapper.VersionPin(skill.getId(), current));
                 continue;
             }
             ensure(skill.getName(), fallbackUserId);
             created++;
         }
+        if (!pins.isEmpty()) bindings.pinMissingAll(pins);
         return created;
     }
 
     /** 与发布保持相同锁顺序；即使已有历史版本，也必须快照实际运行内容。 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public long ensure(String name, long fallbackUserId) {
         versions.lockBySkillName(name);
         SkillBean skill = skills.lockByName(name);
@@ -81,7 +101,7 @@ public class SkillBaselineMigrator {
         version.setSkillName(skill.getName());
         version.setSkillId(skill.getId());
         version.setVersionNo(versions.maxVersionNo(name) + 1);
-        version.setState("PUBLISHED");
+        version.setState(SkillVersionState.PUBLISHED.name());
         version.setDescription(description);
         version.setSkillContent(markdown);
         version.setMetadataJson(skill.getMetadataJson() == null
@@ -90,30 +110,31 @@ public class SkillBaselineMigrator {
         SkillSourceRules rules = new SkillSourceRules();
         rules.baseline = true;
         version.setSourceRulesJson(SkillJson.write(rules));
-        version.setVisibleScope(skill.getVisibleScope() == null ? "0" : skill.getVisibleScope());
+        version.setVisibleScope(skill.getVisibleScope() == null ? SkillVisibleScope.PUBLIC.code() : skill.getVisibleScope());
         version.setOwnerDeptId(skill.getOwnerDeptId());
         version.setCreatedBy(skill.getCreateBy() == null ? fallbackUserId : skill.getCreateBy());
         version.setRevision(0L);
         version.setGmtCreate(now);
         version.setGmtModified(now);
         versions.insertVersion(version);
-        write(version.getId(), "SKILL.md", SkillFileKind.SKILL, markdown.getBytes(StandardCharsets.UTF_8), now);
+        List<SkillVersionFileBean> rows = new ArrayList<>();
+        rows.add(file(version.getId(), "SKILL.md", SkillFileKind.SKILL, markdown.getBytes(StandardCharsets.UTF_8), now));
         if (skill.getId() != null) {
             for (SkillResourceBean resource : resources.findContents(skill.getId())) {
                 String path = resource.getResourcePath();
                 byte[] body = resource.getResourceContent() == null
                         ? new byte[0]
                         : resource.getResourceContent().getBytes(StandardCharsets.UTF_8);
-                SkillFileKind kind = SkillDocuments.kind(path);
-                write(version.getId(), path, kind, body, now);
+                rows.add(file(version.getId(), path, SkillDocuments.kind(path), body, now));
             }
         }
+        files.insertFiles(rows);
         releases.point(skill.getId(), version.getId());
         bindings.pinMissing(skill.getId(), version.getId());
         return version.getId();
     }
 
-    private void write(long versionId, String path, SkillFileKind kind, byte[] body, LocalDateTime now) {
+    private static SkillVersionFileBean file(long versionId, String path, SkillFileKind kind, byte[] body, LocalDateTime now) {
         SkillVersionFileBean file = new SkillVersionFileBean();
         file.setVersionId(versionId);
         file.setResourcePath(path);
@@ -123,6 +144,6 @@ public class SkillBaselineMigrator {
         file.setByteSize(body.length);
         file.setGmtCreate(now);
         file.setGmtModified(now);
-        files.insertFile(file);
+        return file;
     }
 }

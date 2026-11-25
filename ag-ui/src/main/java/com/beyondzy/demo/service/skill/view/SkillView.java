@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.view;
 
 import com.beyondzy.demo.enums.skill.SkillFileKind;
 import java.time.LocalDateTime;

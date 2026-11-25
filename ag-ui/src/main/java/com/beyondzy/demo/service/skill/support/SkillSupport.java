@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.support;
 
 import com.beyondzy.demo.exception.skill.SkillException;
 import java.nio.charset.StandardCharsets;

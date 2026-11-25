@@ -1,5 +1,7 @@
 package com.beyondzy.demo.web.mcp;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.exception.mcp.McpManagementException;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.mcp.McpManagementService;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+@Tag(name = "MCP 管理", description = "管理 MCP 服务、工具和操作记录")
 @RestController
 @RequestMapping("/api/admin/mcp/services")
 public class McpAdminController {
@@ -29,6 +32,7 @@ public class McpAdminController {
         }).subscribeOn(Schedulers.boundedElastic()));
     }
     @GetMapping({"","/"})
+    @Operation(summary = "分页查询 MCP 服务")
     public Mono<Map<String,Object>> list(@RequestParam(required=false) String q,
             @RequestParam(defaultValue="all") String state,@RequestParam(required=false) String transport,
             @RequestParam(required=false) String health,@RequestParam(defaultValue="1") int page,
@@ -36,8 +40,10 @@ public class McpAdminController {
         return admin(a->management.list(q,state,transport,health,page,size));
     }
     @GetMapping("/{id}")
+    @Operation(summary = "查询 MCP 服务")
     public Mono<Map<String,Object>> detail(@PathVariable long id) { return admin(a->management.detail(id)); }
     @PutMapping("/{id}/metadata")
+    @Operation(summary = "修改 MCP 服务资料")
     public Mono<Map<String,Object>> metadata(@PathVariable long id,@RequestBody Map<String,Object> body) {
         return admin(a->{
             fields(body,Set.of("displayName","description","ownerName","expectedVersion"));
@@ -46,27 +52,33 @@ public class McpAdminController {
         });
     }
     @PostMapping("/{id}/status")
+    @Operation(summary = "修改 MCP 服务启停")
     public Mono<Map<String,Object>> status(@PathVariable long id,@RequestBody Map<String,Object> body) {
         return admin(a->{fields(body,Set.of("enabled","expectedVersion")); return management.status(id,enabled(body),version(body),a);});
     }
     @GetMapping("/{id}/tools")
+    @Operation(summary = "分页查询 MCP 工具")
     public Mono<Map<String,Object>> tools(@PathVariable long id,@RequestParam(required=false) String q,
             @RequestParam(defaultValue="all") String state,@RequestParam(defaultValue="1") int page,
             @RequestParam(defaultValue="20") int size) {
         return admin(a->management.toolPage(id,q,state,page,size));
     }
     @GetMapping("/{id}/tools/{toolId}")
+    @Operation(summary = "查询 MCP 工具")
     public Mono<Map<String,Object>> tool(@PathVariable long id,@PathVariable long toolId) {
         return admin(a->management.toolDetail(id,toolId));
     }
     @PostMapping("/{id}/tools/{toolId}/status")
+    @Operation(summary = "修改 MCP 工具启停")
     public Mono<Map<String,Object>> toolStatus(@PathVariable long id,@PathVariable long toolId,@RequestBody Map<String,Object> body) {
         return admin(a->{fields(body,Set.of("enabled","expectedVersion"));
             return management.toolStatus(id,toolId,enabled(body),version(body),a);});
     }
     @PostMapping("/{id}/verify")
+    @Operation(summary = "校验 MCP 服务")
     public Mono<Map<String,Object>> verify(@PathVariable long id) { return admin(a->management.verify(id,a)); }
     @GetMapping("/{id}/operations")
+    @Operation(summary = "分页查询操作记录")
     public Mono<Map<String,Object>> history(@PathVariable long id,@RequestParam(defaultValue="1") int page,
             @RequestParam(defaultValue="20") int size) { return admin(a->management.history(id,page,size)); }
     private static void fields(Map<String,Object> body,Set<String> allowed) {

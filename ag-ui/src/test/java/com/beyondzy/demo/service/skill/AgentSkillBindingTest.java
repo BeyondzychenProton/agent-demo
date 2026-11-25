@@ -1,5 +1,7 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.support.SkillDraft;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;

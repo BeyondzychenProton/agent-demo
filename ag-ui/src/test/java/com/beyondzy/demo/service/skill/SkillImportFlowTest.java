@@ -1,5 +1,10 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillDraft;
+import com.beyondzy.demo.service.skill.view.SkillImportView;
+import com.beyondzy.demo.service.skill.view.SkillVersionView;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -7,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.contract.PageResult;
 import com.beyondzy.demo.exception.skill.SkillException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -163,7 +169,7 @@ class SkillImportFlowTest {
                     "SELECT created_by FROM ai_skill_version WHERE skill_name = 'weekly-report'", Long.class));
             assertNull(harness.jdbc.queryForObject(
                     "SELECT package_version FROM ai_skill_version WHERE skill_name = 'weekly-report'", String.class));
-            SkillVersionView.Page drafts = harness.versions.list("weekly-report", "PUBLISHED", 1, 20);
+            PageResult<SkillVersionView.Summary> drafts = harness.versions.list("weekly-report", "PUBLISHED", 1, 20);
             SkillVersionView copy = harness.versions.create(1, new SkillVersionService.CreateRequest(
                     "weekly-report", drafts.items().get(0).id(), null, null, null, null, null));
             assertEquals("7", harness.jdbc.queryForObject(

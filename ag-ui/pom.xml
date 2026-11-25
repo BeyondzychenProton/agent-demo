@@ -20,6 +20,7 @@
         <agentscope.version>2.1.0-BETA1</agentscope.version>
         <spring.boot.version>4.0.4</spring.boot.version>
         <mybatis-plus.version>3.5.18</mybatis-plus.version>
+        <springdoc.version>3.0.3</springdoc.version>
     </properties>
 
     <!-- BOM 顺序：先 AgentScope（覆盖 jackson/reactor/okhttp 等重叠版本），再 Spring Boot -->
@@ -85,6 +86,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
         <!-- 会话日志和展示读模型直接使用 Spring JDBC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -94,6 +100,11 @@
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
             <version>${mybatis-plus.version}</version>
         </dependency>
         <dependency>

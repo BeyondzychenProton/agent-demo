@@ -11,6 +11,7 @@ import com.beyondzy.demo.mapper.directory.DirectoryUserMapper;
 import com.beyondzy.demo.service.directory.DirectoryService;
 import com.beyondzy.demo.service.user.UserService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import java.util.Objects;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Comparator;
 import org.springframework.stereotype.Service;
@@ -36,7 +37,7 @@ public class DirectoryServiceImpl implements DirectoryService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void apply(DirectoryPush push) {
         // 批次内按来源 ID 排序写入，减少并发推送时的锁顺序冲突。
         push.departments().stream().sorted(Comparator.comparing(DirectoryPush.Department::deptId))
@@ -56,7 +57,7 @@ public class DirectoryServiceImpl implements DirectoryService {
         row.setName(deleted ? null : change.deptName());
         row.setSortOrder(deleted || change.orderNum() == null ? 0 : change.orderNum());
         row.setStatus(deleted ? null : change.status());
-        row.setIsDeleted(deleted ? 1 : 0);
+        row.setIsDeleted(deleted ? DirectoryDepartmentBean.DELETED : DirectoryDepartmentBean.NOT_DELETED);
         departments.upsert(row);
     }
 
@@ -73,7 +74,7 @@ public class DirectoryServiceImpl implements DirectoryService {
             users.disableDirectoryAccount(change.userId());
         } else {
             users.syncDirectoryAccount(change.userId(), change.nickName(), change.phonenumber().strip(),
-                    "0".equals(change.status()));
+                    DirectoryUserBean.STATUS_ENABLED.equals(change.status()));
         }
 
         var row = new DirectoryUserBean();
@@ -84,12 +85,12 @@ public class DirectoryServiceImpl implements DirectoryService {
         row.setName(deleted ? null : change.nickName());
         row.setEmail(deleted ? null : change.email());
         row.setStatus(deleted ? null : change.status());
-        row.setIsDeleted(deleted ? 1 : 0);
+        row.setIsDeleted(deleted ? DirectoryUserBean.DELETED : DirectoryUserBean.NOT_DELETED);
         directoryUsers.upsert(row);
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void recordPush(DirectoryPush push, PushStatus status) {
         var row = new DirectoryPushHistoryBean();
         row.setSource("MANTIANXING");
@@ -112,10 +113,10 @@ public class DirectoryServiceImpl implements DirectoryService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Directory read() {
         var departmentRows = departments.selectList(Wrappers.<DirectoryDepartmentBean>lambdaQuery()
-                .eq(DirectoryDepartmentBean::getIsDeleted, 0)
+                .eq(DirectoryDepartmentBean::getIsDeleted, DirectoryDepartmentBean.NOT_DELETED)
                 .orderByAsc(DirectoryDepartmentBean::getSortOrder, DirectoryDepartmentBean::getSourceId));
         var userRows = directoryUsers.selectList(Wrappers.<DirectoryUserBean>lambdaQuery()
-                .eq(DirectoryUserBean::getIsDeleted, 0)
+                .eq(DirectoryUserBean::getIsDeleted, DirectoryUserBean.NOT_DELETED)
                 .orderByAsc(DirectoryUserBean::getName, DirectoryUserBean::getSourceId));
         return new Directory(
                 departmentRows.stream().map(row -> new Department(row.getSourceId().toString(),
@@ -126,7 +127,7 @@ public class DirectoryServiceImpl implements DirectoryService {
     }
 
     private static Long optionalId(Long id) {
-        return id == null || id == 0 ? null : id;
+        return id == null || Objects.equals(id, 0L) ? null : id;
     }
 
     private static String asString(Long id) {

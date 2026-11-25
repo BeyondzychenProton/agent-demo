@@ -1,7 +1,7 @@
 package com.beyondzy.demo.mapper.skill;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.beyondzy.demo.domain.skill.SkillManagementRow;
-import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -47,9 +47,9 @@ public interface SkillManagementMapper {
                 (#{state} = 'draft' OR t.current_version_id IS NULL OR t.platform_version IS NOT NULL)))
             """;
 
-    @Select("SELECT * FROM (" + CATALOG + ") t " + RESOURCE_FILTER + " ORDER BY name LIMIT #{limit} OFFSET #{offset}")
-    List<SkillManagementRow> page(@Param("q") String query, @Param("state") String state,
-            @Param("resource") String resource, @Param("limit") int limit, @Param("offset") long offset);
+    @Select("SELECT * FROM (" + CATALOG + ") t " + RESOURCE_FILTER + " ORDER BY name")
+    IPage<SkillManagementRow> page(IPage<SkillManagementRow> page, @Param("q") String query, @Param("state") String state,
+            @Param("resource") String resource);
 
     @Select("SELECT COUNT(*) FROM (" + CATALOG + ") t " + RESOURCE_FILTER)
     long count(@Param("q") String query, @Param("state") String state, @Param("resource") String resource);

@@ -3,7 +3,9 @@ package com.beyondzy.demo.service.mcp;
 import com.baomidou.mybatisplus.core.*;
 import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
+import com.beyondzy.demo.config.mybatis.MybatisPages;
 import com.beyondzy.demo.config.mybatis.MybatisPlusMetaObjectHandler;
+import com.beyondzy.demo.enums.mcp.McpProvider;
 import com.beyondzy.demo.mapper.mcp.*;
 import com.beyondzy.demo.mcp.*;
 import java.nio.charset.StandardCharsets;
@@ -11,12 +13,16 @@ import java.util.*;
 import javax.sql.DataSource;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.LocalCacheScope;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 final class McpHarness {
     final JdbcTemplate jdbc;
@@ -44,12 +50,26 @@ final class McpHarness {
         global.setBanner(false); global.setDbConfig(new GlobalConfig.DbConfig());
         global.setMetaObjectHandler(new MybatisPlusMetaObjectHandler());
         GlobalConfigUtils.setGlobalConfig(config,global);
+        config.addInterceptor(MybatisPages.interceptor());
         config.addMapper(McpServiceMapper.class); config.addMapper(McpToolMapper.class); config.addMapper(McpOperationMapper.class);
-        var template=new SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(config));
+        SqlSessionFactory factory=new MybatisSqlSessionFactoryBuilder().build(config);
+        var template=new SqlSessionTemplate(factory);
         services=template.getMapper(McpServiceMapper.class); tools=template.getMapper(McpToolMapper.class);
         manager=new DataSourceTransactionManager(ds);
-        service=new McpManagementService(services,tools,template.getMapper(McpOperationMapper.class),registry,manager);
+        McpManagementService raw=new McpManagementService(services,tools,template.getMapper(McpOperationMapper.class),registry,factory);
+        service=transactional(raw,manager);
+        raw.bindSelf(service);
         guard=new McpInvocationGuard(services,registry,manager);
+    }
+    private static McpManagementService transactional(McpManagementService target, DataSourceTransactionManager manager) {
+        TransactionInterceptor interceptor=new TransactionInterceptor();
+        interceptor.setTransactionManager(manager);
+        interceptor.setTransactionAttributeSource(new AnnotationTransactionAttributeSource());
+        interceptor.afterPropertiesSet();
+        ProxyFactory proxy=new ProxyFactory(target);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(interceptor);
+        return (McpManagementService)proxy.getProxy();
     }
     void register(McpServer server) {
         registry.register(server,new McpRegistry.Descriptor("会议服务","http://localhost/mcp?token=hidden","Streamable HTTP","应用签名","测试"));
@@ -62,7 +82,7 @@ final class McpHarness {
     static class Server implements McpServer {
         volatile List<McpToolDefinition> definitions=List.of(definition("meeting.list_mine"));
         volatile RuntimeException failure;
-        @Override public String id(){return "mantianxing";}
+        @Override public String id(){return McpProvider.Code.MANTIANXING;}
         @Override public List<McpToolDefinition> listTools(){if(failure!=null)throw failure;return definitions;}
         @Override public McpCallResult callTool(String name,Map<String,Object> args,String user){return McpCallResult.success(Map.of());}
     }

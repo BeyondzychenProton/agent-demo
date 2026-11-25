@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.view;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -6,8 +6,6 @@ import java.util.List;
 /** 管理端读到的技能和绑定。详情里的 content 是剥掉 frontmatter 的正文。 */
 public final class SkillAdminView {
     private SkillAdminView() {}
-
-    public record Page(List<Item> items, long total, int page, int size) {}
 
     public record Item(
             String name,

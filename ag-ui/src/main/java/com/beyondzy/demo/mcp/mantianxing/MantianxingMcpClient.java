@@ -1,5 +1,7 @@
 package com.beyondzy.demo.mcp.mantianxing;
 
+import com.beyondzy.demo.enums.mcp.McpCallCode;
+import com.beyondzy.demo.enums.mcp.McpProvider;
 import com.beyondzy.demo.exception.mcp.McpCallException;
 import com.beyondzy.demo.mcp.McpCallResult;
 import com.beyondzy.demo.mcp.McpServer;
@@ -110,7 +112,7 @@ public final class MantianxingMcpClient implements McpServer {
 
     @Override
     public String id() {
-        return "mantianxing";
+        return McpProvider.MANTIANXING.code();
     }
 
     @Override
@@ -125,10 +127,10 @@ public final class MantianxingMcpClient implements McpServer {
             phone = userId == null || userId.isBlank() ? null : phones.phoneOf(userId);
         } catch (RuntimeException error) {
             logger.warn("查询登录用户手机号失败");
-            return McpCallResult.failure("UNAUTHENTICATED", "无法确认当前登录用户手机号", null);
+            return McpCallResult.failure(McpCallCode.UNAUTHENTICATED, "无法确认当前登录用户手机号", null);
         }
         if (phone == null || phone.isBlank()) {
-            return McpCallResult.failure("UNAUTHENTICATED", "当前登录用户没有可用手机号", null);
+            return McpCallResult.failure(McpCallCode.UNAUTHENTICATED, "当前登录用户没有可用手机号", null);
         }
         return callWithPhone(toolName, arguments, phone);
     }
@@ -147,14 +149,14 @@ public final class MantianxingMcpClient implements McpServer {
             collect(page, tools);
             cursor = text(page, "nextCursor");
         }
-        if (cursor != null) throw new McpCallException("DISCOVERY_INCOMPLETE", "工具分页未完整读取");
+        if (cursor != null) throw new McpCallException(McpCallCode.DISCOVERY_INCOMPLETE, "工具分页未完整读取");
         return List.copyOf(tools);
         } finally { discoveryDeadline.remove(); }
     }
 
     private McpCallResult callWithPhone(String toolName, Map<String, Object> arguments, String userPhone) {
         if (toolName == null || toolName.isBlank()) {
-            return McpCallResult.failure("INVALID_ARGUMENT", "工具名不能为空", null);
+            return McpCallResult.failure(McpCallCode.INVALID_ARGUMENT, "工具名不能为空", null);
         }
         try {
             String session = openSession(userPhone);
@@ -220,27 +222,27 @@ public final class MantianxingMcpClient implements McpServer {
             String nextSession = response.headers().firstValue("Mcp-Session-Id").orElse(sessionId);
             int status = response.statusCode();
             String raw = response.body();
-            if (status == 401) throw new McpCallException("UNAUTHENTICATED", "MCP 鉴权失败");
-            if (status == 503) throw new McpCallException("SERVER_UNAVAILABLE", "MCP 服务未就绪");
+            if (status == 401) throw new McpCallException(McpCallCode.UNAUTHENTICATED, "MCP 鉴权失败");
+            if (status == 503) throw new McpCallException(McpCallCode.SERVER_UNAVAILABLE, "MCP 服务未就绪");
             if (status < 200 || status >= 300) {
-                throw new McpCallException("HTTP_" + status, httpMessage(status, raw));
+                throw new McpCallException(McpCallCode.http(status), httpMessage(status, raw));
             }
             if (!expectResult) return new RpcMessage(nextSession, null);
             JsonNode rpc = selectRpc(raw, id);
-            if (rpc == null) throw new McpCallException("PROTOCOL", "MCP 响应无法解析");
+            if (rpc == null) throw new McpCallException(McpCallCode.PROTOCOL, "MCP 响应无法解析");
             if (rpc.hasNonNull("error")) {
                 String message = rpc.path("error").path("message").asText("MCP 调用失败");
-                throw new McpCallException("PROTOCOL", message);
+                throw new McpCallException(McpCallCode.PROTOCOL, message);
             }
-            if (!rpc.has("result")) throw new McpCallException("PROTOCOL", "MCP 响应缺少 result");
+            if (!rpc.has("result")) throw new McpCallException(McpCallCode.PROTOCOL, "MCP 响应缺少 result");
             return new RpcMessage(nextSession, rpc.get("result"));
         } catch (McpCallException error) {
             throw error;
         } catch (IOException error) {
-            throw new McpCallException("TRANSPORT_FAILURE", "MCP 服务不可达");
+            throw new McpCallException(McpCallCode.TRANSPORT_FAILURE, "MCP 服务不可达");
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new McpCallException("TRANSPORT_FAILURE", "MCP 调用被中断");
+            throw new McpCallException(McpCallCode.TRANSPORT_FAILURE, "MCP 调用被中断");
         }
     }
 
@@ -248,21 +250,21 @@ public final class MantianxingMcpClient implements McpServer {
         Long deadline = discoveryDeadline.get();
         if (deadline == null) return timeout;
         long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) throw new McpCallException("DISCOVERY_TIMEOUT", "工具发现超过总时限");
+        if (remaining <= 0) throw new McpCallException(McpCallCode.DISCOVERY_TIMEOUT, "工具发现超过总时限");
         return Duration.ofNanos(Math.min(timeout.toNanos(), remaining));
     }
 
     private static void collect(JsonNode result, List<McpToolDefinition> tools) {
         JsonNode listed = result == null ? null : result.get("tools");
         if (listed == null || !listed.isArray())
-            throw new McpCallException("INVALID_CATALOG", "工具目录缺少有效 tools 数组");
+            throw new McpCallException(McpCallCode.INVALID_CATALOG, "工具目录缺少有效 tools 数组");
         for (JsonNode tool : listed) {
             String name = text(tool, "name");
             if (name == null || name.length() > 255)
-                throw new McpCallException("INVALID_CATALOG", "工具目录包含无效名称");
+                throw new McpCallException(McpCallCode.INVALID_CATALOG, "工具目录包含无效名称");
             JsonNode schema = tool.get("inputSchema");
             if (schema != null && !schema.isNull() && !schema.isObject())
-                throw new McpCallException("INVALID_CATALOG", "工具输入结构无效");
+                throw new McpCallException(McpCallCode.INVALID_CATALOG, "工具输入结构无效");
             Map<String, Object> inputSchema = schema != null && schema.isObject()
                     ? JSON.convertValue(schema, MAP)
                     : null;
@@ -276,17 +278,17 @@ public final class MantianxingMcpClient implements McpServer {
                     text(tool, "description"),
                     inputSchema,
                     writeOperation(name, readOnlyHint)));
-            if (tools.size() > 1000) throw new McpCallException("INVALID_CATALOG", "工具目录超过限制");
+            if (tools.size() > 1000) throw new McpCallException(McpCallCode.INVALID_CATALOG, "工具目录超过限制");
         }
     }
 
     private static McpCallResult interpret(JsonNode result) {
         if (result == null || result.isNull()) {
-            return McpCallResult.failure("PROTOCOL", "MCP 工具结果为空", null);
+            return McpCallResult.failure(McpCallCode.PROTOCOL, "MCP 工具结果为空", null);
         }
         boolean isError = result.path("isError").asBoolean(false);
         Object body = businessBody(result);
-        if (isError) return McpCallResult.failure("TOOL_ERROR", "工具返回错误", body);
+        if (isError) return McpCallResult.failure(McpCallCode.TOOL_ERROR, "工具返回错误", body);
         return McpCallResult.success(body);
     }
 
@@ -375,7 +377,7 @@ public final class MantianxingMcpClient implements McpServer {
     }
 
     private static String requirePhone(String userPhone) {
-        if (userPhone == null || userPhone.isBlank()) throw new McpCallException("UNAUTHENTICATED", "缺少登录用户手机号");
+        if (userPhone == null || userPhone.isBlank()) throw new McpCallException(McpCallCode.UNAUTHENTICATED, "缺少登录用户手机号");
         return userPhone.strip();
     }
 

@@ -1,7 +1,11 @@
 package com.beyondzy.demo.service.skill.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.contract.Pages;
 import com.beyondzy.demo.domain.skill.SkillBean;
+import com.beyondzy.demo.domain.skill.SkillResourceBean;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
 import com.beyondzy.demo.domain.skill.SkillVersionDependencyBean;
 import com.beyondzy.demo.domain.skill.SkillVersionFileBean;
@@ -17,17 +21,17 @@ import com.beyondzy.demo.mapper.skill.SkillVersionDependencyMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
 import com.beyondzy.demo.mapper.skill.SkillReleaseMapper;
-import com.beyondzy.demo.service.skill.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
 import com.beyondzy.demo.service.skill.SkillImportService;
-import com.beyondzy.demo.service.skill.SkillImportView;
-import com.beyondzy.demo.service.skill.SkillJson;
-import com.beyondzy.demo.service.skill.SkillPackageInspector;
+import com.beyondzy.demo.service.skill.view.SkillImportView;
+import com.beyondzy.demo.service.skill.support.SkillJson;
+import com.beyondzy.demo.service.skill.support.SkillPackageInspector;
 import com.beyondzy.demo.service.skill.SkillResourceCatalog;
-import com.beyondzy.demo.service.skill.SkillSourceRules;
-import com.beyondzy.demo.service.skill.SkillSupport;
-import com.beyondzy.demo.service.skill.SkillTimes;
+import com.beyondzy.demo.service.skill.support.SkillSourceRules;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
+import com.beyondzy.demo.service.skill.support.SkillTimes;
 import com.beyondzy.demo.service.skill.SkillVersionService;
-import com.beyondzy.demo.service.skill.SkillVersionView;
+import com.beyondzy.demo.service.skill.view.SkillVersionView;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -84,7 +88,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SkillVersionView create(long operatorId, CreateRequest request) {
         if (request == null || request.skillName() == null || !SkillDocuments.NAME.matcher(request.skillName()).matches()) {
             throw new SkillException(400, "INVALID_NAME", "技能名不合法");
@@ -112,23 +116,27 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                 department, owner, null, now);
         version.setSourceRulesJson(SkillJson.write(new SkillSourceRules()));
         insertVersion(version);
-        insertFile(version.getId(), "SKILL.md", SkillFileKind.SKILL, markdown.getBytes(StandardCharsets.UTF_8), now);
+        List<SkillVersionFileBean> createdFiles = new ArrayList<>();
+        createdFiles.add(preparedFile(version.getId(), "SKILL.md", SkillFileKind.SKILL, markdown.getBytes(StandardCharsets.UTF_8), now));
         for (TextFile file : request.files() == null ? List.<TextFile>of() : request.files()) {
             Stored stored = textFile(file.path(), file.content());
-            insertFile(version.getId(), stored.path(), stored.kind(), stored.body(), now);
+            createdFiles.add(preparedFile(version.getId(), stored.path(), stored.kind(), stored.body(), now));
         }
+        insertFiles(createdFiles);
         return get(version.getId());
     }
 
     @Override
-    public SkillVersionView.Page list(String skillName, String state, int page, int size) {
-        if (page < 1 || size < 1 || size > 100) throw new SkillException(400, "INVALID_ARGUMENT", "分页参数不合法");
+    public PageResult<SkillVersionView.Summary> list(String skillName, String state, int page, int size) {
+        if (!Pages.valid(page, size)) throw new SkillException(400, "INVALID_ARGUMENT", "分页参数不合法");
         if (skillName != null && !skillName.isBlank() && !SkillDocuments.NAME.matcher(skillName).matches()) {
             throw new SkillException(400, "INVALID_NAME", "技能名不合法");
         }
         String name = skillName == null || skillName.isBlank() ? null : skillName;
         String filter = state == null || state.isBlank() ? null : SkillVersionState.parse(state).name();
-        List<SkillVersionView.Summary> items = versions.page(name, filter, size, (long) (page - 1) * size).stream()
+        Page<SkillVersionBean> query = new Page<>(page, size);
+        versions.page(query, name, filter);
+        List<SkillVersionView.Summary> items = query.getRecords().stream()
                 .map(row -> new SkillVersionView.Summary(
                         SkillSupport.id(row.getId()),
                         row.getSkillName(),
@@ -139,7 +147,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                         SkillTimes.format(row.getPublishedAt()),
                         SkillSupport.id(row.getRevision())))
                 .toList();
-        return new SkillVersionView.Page(items, versions.count(name, filter), page, size);
+        return new PageResult<>(items, query.getTotal(), page, size);
     }
 
     @Override
@@ -148,7 +156,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SkillVersionView update(long operatorId, long id, UpdateRequest request) {
         if (request == null) throw new SkillException(400, "INVALID_ARGUMENT", "请求体不能为空");
         SkillVersionBean version = require(id);
@@ -170,30 +178,30 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         String markdown = SkillDocuments.compose(version.getSkillName(), description, request.content());
         List<SkillVersionFileBean> nextFiles = mergeFiles(version.getId(), request.files());
         List<SkillVersionDependencyBean> nextDeps = mergeDependencies(version, request.dependencies());
+        LocalDateTime now = SkillTimes.now();
         version.setDescription(description);
         version.setSkillContent(markdown);
         version.setMetadataJson(SkillSupport.metadata(version.getSkillName(), description));
         version.setVisibleScope(scope.code());
         version.setOwnerDeptId(department);
-        version.setGmtModified(SkillTimes.now());
+        version.setGmtModified(now);
         if (versions.updateDraft(version) != 1) throw conflict(id);
         files.deleteByVersion(id);
         dependencies.deleteByVersion(id);
-        LocalDateTime now = SkillTimes.now();
         for (SkillVersionFileBean file : nextFiles) {
             file.setId(null);
             file.setVersionId(id);
             file.setGmtCreate(now);
             file.setGmtModified(now);
-            files.insertFile(file);
         }
+        insertFiles(nextFiles);
         for (SkillVersionDependencyBean dependency : nextDeps) {
             dependency.setId(null);
             dependency.setVersionId(id);
             dependency.setGmtCreate(now);
             dependency.setGmtModified(now);
-            dependencies.insertDependency(dependency);
         }
+        insertDependencies(nextDeps);
         return get(id);
     }
 
@@ -254,7 +262,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                 published.getState(),
                 published.getPlatformVersion(),
                 SkillTimes.format(published.getPublishedAt()),
-                runtime == null ? "1" : runtime.getStatus());
+                runtime == null ? SkillBean.STATUS_DISABLED : runtime.getStatus());
     }
 
     private void publishLocked(long operatorId, long id, long revision, String platformVersion) {
@@ -276,7 +284,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             created.setSkillContent(version.getSkillContent());
             created.setSource(SkillJdbc.SOURCE);
             created.setMetadataJson(SkillSupport.metadata(version.getSkillName(), version.getDescription()));
-            created.setStatus("1");
+            created.setStatus(SkillBean.STATUS_DISABLED);
             created.setVisibleScope(version.getVisibleScope());
             created.setOwnerDeptId(version.getOwnerDeptId());
             created.setCreateBy(version.getCreatedBy());
@@ -287,7 +295,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                 throw error;
             }
             skillId = created.getId();
-            status = "1";
+            status = SkillBean.STATUS_DISABLED;
         } else {
             baselines.ensure(locked.getName(), operatorId);
             if (version.getSkillId() != null && !version.getSkillId().equals(locked.getId())) {
@@ -312,16 +320,21 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         version.setGmtModified(now);
         if (versions.publish(version) != 1) throw conflict(id);
         releases.point(skillId, id);
-        if (status == null) status = "1";
+        if (status == null) status = SkillBean.STATUS_DISABLED;
     }
 
     private void project(long skillId, List<SkillVersionFileBean> stored) {
+        List<SkillResourceBean> rows = new ArrayList<>();
         for (SkillVersionFileBean file : stored) {
-            if (!"REFERENCE".equals(file.getFileKind()) && !"SCRIPT".equals(file.getFileKind())) continue;
+            if (!SkillFileKind.REFERENCE.name().equals(file.getFileKind())
+                    && !SkillFileKind.SCRIPT.name().equals(file.getFileKind())) continue;
             if (!SkillSupport.utf8(file.getContent())) continue;
-            String path = SkillDocuments.resourcePath(file.getResourcePath());
-            resources.insertResource(skillId, path, new String(file.getContent(), StandardCharsets.UTF_8));
+            SkillResourceBean row = new SkillResourceBean();
+            row.setResourcePath(SkillDocuments.resourcePath(file.getResourcePath()));
+            row.setResourceContent(new String(file.getContent(), StandardCharsets.UTF_8));
+            rows.add(row);
         }
+        if (!rows.isEmpty()) resources.insertResources(skillId, rows);
     }
 
     private SkillVersionView copyPublished(long operatorId, String skillName, long baseId) {
@@ -337,16 +350,19 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         version.setDisplayName(base.getDisplayName());
         version.setMetadataJson(base.getMetadataJson());
         insertVersion(version);
+        List<SkillVersionFileBean> copiedFiles = new ArrayList<>();
         for (SkillVersionFileBean file : files.listContent(baseId)) {
-            insertFile(version.getId(), file.getResourcePath(), SkillFileKind.valueOf(file.getFileKind()), file.getContent(), now);
+            copiedFiles.add(preparedFile(version.getId(), file.getResourcePath(), SkillFileKind.valueOf(file.getFileKind()), file.getContent(), now));
         }
-        for (SkillVersionDependencyBean dependency : dependencies.listByVersion(baseId)) {
+        insertFiles(copiedFiles);
+        List<SkillVersionDependencyBean> copiedDependencies = dependencies.listByVersion(baseId);
+        for (SkillVersionDependencyBean dependency : copiedDependencies) {
             dependency.setId(null);
             dependency.setVersionId(version.getId());
             dependency.setGmtCreate(now);
             dependency.setGmtModified(now);
-            dependencies.insertDependency(dependency);
         }
+        insertDependencies(copiedDependencies);
         return get(version.getId());
     }
 
@@ -370,7 +386,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             SkillVersionFileBean current = byId.get(fileId);
             if (current == null) throw new SkillException(404, "FILE_NOT_FOUND", "文件不存在");
             if (!seen.add(fileId)) throw new SkillException(400, "INVALID_ARGUMENT", "文件重复");
-            if ("SKILL".equals(current.getFileKind())) {
+            if (SkillFileKind.SKILL.name().equals(current.getFileKind())) {
                 if (update.content() != null) throw new SkillException(422, "CHECK_BLOCKED", "不能替换原包入口快照");
                 if (update.path() != null && !update.path().isBlank() && !current.getResourcePath().equals(update.path())) {
                     throw new SkillException(422, "CHECK_BLOCKED", "不能改原包入口路径");
@@ -389,7 +405,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             next.add(bytes(path, SkillDocuments.kind(path).name(), body));
         }
         for (SkillVersionFileBean file : existing) {
-            if (seen.contains(file.getId()) || !"SKILL".equals(file.getFileKind())) continue;
+            if (seen.contains(file.getId()) || !SkillFileKind.SKILL.name().equals(file.getFileKind())) continue;
             if (paths.add(file.getResourcePath().toLowerCase())) next.add(file);
         }
         return next;
@@ -429,7 +445,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         SkillVersionDependencyBean row = new SkillVersionDependencyBean();
         row.setSourceKey(source.sourceKey());
         row.setCapabilityKey(source.capabilityKey());
-        row.setRequiredFlag(source.required() ? "1" : "0");
+        row.setRequiredFlag(source.required() ? SkillVersionDependencyBean.REQUIRED : SkillVersionDependencyBean.OPTIONAL);
         if (mapping == SkillMappingState.PENDING) {
             if (kind != SkillTargetKind.UNRESOLVED || hasText(item.targetProviderKey()) || hasText(item.targetToolKey())) {
                 throw new SkillException(422, "CHECK_BLOCKED", "待接入依赖不能带目标");
@@ -470,7 +486,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         if (version.getDescription() == null || version.getDescription().isBlank()) {
             blockers.add(new SkillImportView.Blocker("CHECK_BLOCKED", null, "DESCRIPTION", "用途说明不能为空"));
         }
-        if ("1".equals(version.getVisibleScope())
+        if (SkillVisibleScope.DEPARTMENT.code().equals(version.getVisibleScope())
                 && (version.getOwnerDeptId() == null || !visibility.departmentActive(version.getOwnerDeptId()))) {
             blockers.add(new SkillImportView.Blocker("CHECK_BLOCKED", null, "DEPARTMENT", "部门不存在或已停用"));
         }
@@ -492,8 +508,8 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             }
         }
         for (SkillVersionDependencyBean dependency : deps) {
-            boolean required = !"0".equals(dependency.getRequiredFlag());
-            if ("PENDING".equals(dependency.getMappingState())) {
+            boolean required = !SkillVersionDependencyBean.OPTIONAL.equals(dependency.getRequiredFlag());
+            if (SkillMappingState.PENDING.name().equals(dependency.getMappingState())) {
                 warnings.add("仍有待接入依赖");
                 if (required) {
                     blockers.add(new SkillImportView.Blocker(
@@ -501,12 +517,12 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                 }
                 continue;
             }
-            if (!"CONFIRMED".equals(dependency.getMappingState()) && required) {
+            if (!SkillMappingState.CONFIRMED.name().equals(dependency.getMappingState()) && required) {
                 blockers.add(new SkillImportView.Blocker(
                         "MAPPING_NOT_CONFIRMED", dependency.getSourceKey(), null, "依赖尚未确认"));
                 continue;
             }
-            if ("CONFIRMED".equals(dependency.getMappingState())
+            if (SkillMappingState.CONFIRMED.name().equals(dependency.getMappingState())
                     && !contains(tools, dependency)) {
                 blockers.add(new SkillImportView.Blocker(
                         "DEPENDENCY_UNAVAILABLE", dependency.getSourceKey(), null, "目标能力不存在或不可用"));
@@ -532,7 +548,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             SkillResourceCatalog.CatalogView tools, String kind, String provider, String tool, String capability) {
         for (SkillResourceCatalog.SkillResourceOption option : tools.options()) {
             if (!option.available() || !option.targetKind().equals(kind) || !option.toolKey().equals(tool)) continue;
-            if ("MCP_TOOL".equals(kind) && (provider == null || !provider.equals(option.providerKey()))) continue;
+            if (SkillTargetKind.MCP_TOOL.name().equals(kind) && (provider == null || !provider.equals(option.providerKey()))) continue;
             if (capability != null && option.capabilityKeys() != null && !option.capabilityKeys().isEmpty()
                     && !option.capabilityKeys().contains(capability)) {
                 return false;
@@ -544,7 +560,8 @@ public class SkillVersionServiceImpl implements SkillVersionService {
 
     private static boolean needsMcp(List<SkillVersionDependencyBean> deps) {
         for (SkillVersionDependencyBean dependency : deps) {
-            if ("CONFIRMED".equals(dependency.getMappingState()) && "MCP_TOOL".equals(dependency.getTargetKind())) {
+            if (SkillMappingState.CONFIRMED.name().equals(dependency.getMappingState())
+                    && SkillTargetKind.MCP_TOOL.name().equals(dependency.getTargetKind())) {
                 return true;
             }
         }
@@ -560,7 +577,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
                     version.getState(),
                     version.getPlatformVersion(),
                     SkillTimes.format(version.getPublishedAt()),
-                    runtime == null ? "1" : runtime.getStatus());
+                    runtime == null ? SkillBean.STATUS_DISABLED : runtime.getStatus());
         }
         throw new SkillException(409, "VERSION_ALREADY_PUBLISHED", "版本已发布，不能改成另一个平台版本号");
     }
@@ -582,7 +599,7 @@ public class SkillVersionServiceImpl implements SkillVersionService {
             mapped.add(new SkillImportView.Dependency(
                     dependency.getSourceKey(),
                     dependency.getCapabilityKey(),
-                    !"0".equals(dependency.getRequiredFlag()),
+                    !SkillVersionDependencyBean.OPTIONAL.equals(dependency.getRequiredFlag()),
                     null,
                     dependency.getTargetKind(),
                     dependency.getTargetProviderKey(),
@@ -635,12 +652,22 @@ public class SkillVersionServiceImpl implements SkillVersionService {
         if (last != null) throw new SkillException(409, "VERSION_CONFLICT", "版本序号冲突，请重试");
     }
 
-    private void insertFile(long versionId, String path, SkillFileKind kind, byte[] body, LocalDateTime now) {
+    private void insertFiles(List<SkillVersionFileBean> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        files.insertFiles(rows);
+    }
+
+    private void insertDependencies(List<SkillVersionDependencyBean> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        dependencies.insertDependencies(rows);
+    }
+
+    private static SkillVersionFileBean preparedFile(long versionId, String path, SkillFileKind kind, byte[] body, LocalDateTime now) {
         SkillVersionFileBean row = bytes(path, kind.name(), body);
         row.setVersionId(versionId);
         row.setGmtCreate(now);
         row.setGmtModified(now);
-        files.insertFile(row);
+        return row;
     }
 
     private static SkillVersionFileBean bytes(String path, String kind, byte[] body) {

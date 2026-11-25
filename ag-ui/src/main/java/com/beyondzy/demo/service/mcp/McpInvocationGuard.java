@@ -1,5 +1,6 @@
 package com.beyondzy.demo.service.mcp;
 
+import com.beyondzy.demo.enums.mcp.McpCallCode;
 import com.beyondzy.demo.exception.mcp.McpCallException;
 import com.beyondzy.demo.mapper.mcp.McpServiceMapper;
 import com.beyondzy.demo.mcp.McpInvocationCheck;
@@ -23,14 +24,14 @@ public class McpInvocationGuard implements McpInvocationCheck {
     @Override public void check(String provider, String tool) {
         McpServiceMapper.InvocationState state;
         try { state=read.execute(s->mapper.invocationState(provider,tool)); }
-        catch (RuntimeException e) { throw new McpCallException("MCP_STATE_UNAVAILABLE","暂时无法读取 MCP 管理状态，本次未执行"); }
+        catch (RuntimeException e) { throw new McpCallException(McpCallCode.MCP_STATE_UNAVAILABLE,"暂时无法读取 MCP 管理状态，本次未执行"); }
         if (state==null || !Integer.valueOf(1).equals(state.present))
-            throw new McpCallException("MCP_TOOL_UNAVAILABLE","该工具不在当前有效目录中，本次未执行");
+            throw new McpCallException(McpCallCode.MCP_TOOL_UNAVAILABLE,"该工具不在当前有效目录中，本次未执行");
         if (!Integer.valueOf(1).equals(state.serviceEnabled))
-            throw new McpCallException("MCP_SERVICE_DISABLED","该 MCP 服务已停用，本次未执行");
+            throw new McpCallException(McpCallCode.MCP_SERVICE_DISABLED,"该 MCP 服务已停用，本次未执行");
         if (!Integer.valueOf(1).equals(state.toolEnabled))
-            throw new McpCallException("MCP_TOOL_DISABLED","该工具已关闭，本次未执行");
+            throw new McpCallException(McpCallCode.MCP_TOOL_DISABLED,"该工具已关闭，本次未执行");
         if (registry.loaded(provider,tool)==null)
-            throw new McpCallException("MCP_TOOL_NOT_LOADED","当前进程尚未加载该工具，请管理员完成重启");
+            throw new McpCallException(McpCallCode.MCP_TOOL_NOT_LOADED,"当前进程尚未加载该工具，请管理员完成重启");
     }
 }

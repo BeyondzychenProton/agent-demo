@@ -1,5 +1,8 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillUpload;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -7,6 +10,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.beyondzy.demo.config.SkillTestSchema;
 import com.beyondzy.demo.config.skill.SkillJdbc;
 import com.beyondzy.demo.exception.skill.SkillException;
+import com.beyondzy.demo.config.mybatis.MybatisPages;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
 import com.beyondzy.demo.service.skill.impl.SkillCatalogServiceImpl;
@@ -65,6 +69,7 @@ class SkillCatalogServiceTest {
     private static SqlSession session(javax.sql.DataSource dataSource) {
         MybatisConfiguration configuration = new MybatisConfiguration(new Environment(
                 "retired", new JdbcTransactionFactory(), dataSource));
+        configuration.addInterceptor(MybatisPages.interceptor());
         configuration.addMapper(SkillMapper.class);
         configuration.addMapper(SkillResourceMapper.class);
         SqlSessionFactory factory = new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(configuration);

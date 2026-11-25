@@ -1,5 +1,8 @@
 package com.beyondzy.demo.web.skill;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import com.beyondzy.demo.contract.PageResult;
 import com.beyondzy.demo.service.skill.SkillResourceCatalog;
 import com.beyondzy.demo.service.user.UserService;
 import org.springframework.http.MediaType;
@@ -11,6 +14,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 导入时可映射的真实工具和平台能力。发现失败返回 503，不补模拟数据。 */
+@Tag(name = "技能资源", description = "导入时可映射的真实工具和平台能力")
 @RestController
 @RequestMapping(value = "/api/admin/skill-resource-options", produces = MediaType.APPLICATION_JSON_VALUE)
 public class SkillResourceController {
@@ -23,7 +27,8 @@ public class SkillResourceController {
     }
 
     @GetMapping
-    public Mono<SkillResourceCatalog.SkillResourcePage> list(
+    @Operation(summary = "分页查询可映射资源")
+    public Mono<PageResult<SkillResourceCatalog.SkillResourceOption>> list(
             @RequestParam String kind,
             @RequestParam(name = "q", required = false) String query,
             @RequestParam(defaultValue = "1") int page,

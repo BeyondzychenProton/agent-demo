@@ -1,5 +1,6 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.contract.PageResult;
 import java.util.List;
 
 /**
@@ -8,7 +9,7 @@ import java.util.List;
  * <p>只读发现结果，不执行业务工具。发现失败必须抛出，不能补一套模拟候选。
  */
 public interface SkillResourceCatalog {
-    SkillResourcePage page(String kind, String query, int page, int size);
+    PageResult<SkillResourceOption> page(String kind, String query, int page, int size);
 
     /** includeMcp 为假时只返回本进程注册的平台能力，不访问外部发现。 */
     CatalogView capture(boolean includeMcp);
@@ -20,8 +21,6 @@ public interface SkillResourceCatalog {
             String displayName,
             List<String> capabilityKeys,
             boolean available) {}
-
-    record SkillResourcePage(List<SkillResourceOption> items, long total, int page, int size) {}
 
     record CatalogView(List<SkillResourceOption> options) {
         public String fingerprint() {

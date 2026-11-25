@@ -200,6 +200,16 @@ public interface ReadModelMapper {
     @Delete("DELETE FROM rm_item WHERE thread=#{thread} AND id=#{id} AND revision=#{revision}")
     int deleteItemVersion(@Param("thread") String thread, @Param("id") String id, @Param("revision") long revision);
 
+    @Delete("""
+            <script>
+            DELETE FROM rm_item WHERE (thread, id, revision) IN
+            <foreach collection="items" item="item" open="(" separator="," close=")">
+            (#{item.thread}, #{item.id}, #{item.revision})
+            </foreach>
+            </script>
+            """)
+    int deleteItemVersions(@Param("items") List<ReadModelStaleItemBean> items);
+
     /** 删除已无对应 item 版本的孤儿内容映射（cleanup）。 */
     @Delete("DELETE FROM rm_content WHERE NOT EXISTS("
             + "SELECT 1 FROM rm_item i WHERE i.thread=rm_content.thread AND i.id=rm_content.id AND i.revision=rm_content.revision)")

@@ -5,6 +5,7 @@ import com.beyondzy.demo.domain.skill.AgentSkillBean;
 import com.beyondzy.demo.domain.skill.SkillBean;
 import java.util.List;
 import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -30,4 +31,32 @@ public interface AgentSkillMapper extends BaseMapper<AgentSkillBean> {
 
     @Update("UPDATE ai_agent_skill SET version_id = #{versionId} WHERE skill_id = #{skillId} AND version_id IS NULL")
     int pinMissing(@Param("skillId") long skillId, @Param("versionId") long versionId);
+
+    @Insert("""
+            <script>
+            INSERT INTO ai_agent_skill (agent_id, skill_id, version_id, created_by, gmt_create, gmt_modified)
+            VALUES
+            <foreach collection="rows" item="row" separator=",">
+                (#{row.agentId}, #{row.skillId}, #{row.versionId}, #{row.createdBy}, #{now}, #{now})
+            </foreach>
+            </script>
+            """)
+    int insertBindings(@Param("rows") List<AgentSkillBean> rows, @Param("now") java.time.LocalDateTime now);
+
+    @Update("""
+            <script>
+            UPDATE ai_agent_skill
+            SET version_id = CASE skill_id
+            <foreach collection="rows" item="row">
+                WHEN #{row.skillId} THEN #{row.versionId}
+            </foreach>
+            END
+            WHERE version_id IS NULL
+              AND skill_id IN
+            <foreach collection="rows" item="row" open="(" separator="," close=")">#{row.skillId}</foreach>
+            </script>
+            """)
+    int pinMissingAll(@Param("rows") List<VersionPin> rows);
+
+    record VersionPin(long skillId, long versionId) {}
 }

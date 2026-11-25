@@ -1,5 +1,7 @@
 package com.beyondzy.demo.web.skill;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.web.skill.res.SkillDetailResponse;
 import com.beyondzy.demo.web.skill.res.SkillPageResponse;
@@ -21,6 +23,7 @@ import reactor.core.publisher.Mono;
  *
  * <p>GET 也停掉，是因为它会把未绑定和仅本人的技能列给任意登录用户。
  */
+@Tag(name = "技能目录", description = "旧的技能读写入口，一律返回 410")
 @RestController
 @RequestMapping(value = "/api/skills", produces = MediaType.APPLICATION_JSON_VALUE)
 public class SkillController {
@@ -28,6 +31,7 @@ public class SkillController {
     private static final String QUERY_MOVED = "技能查询已收到管理端";
 
     @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "上传单个技能文件")
     public Mono<SkillDetailResponse> uploadFile(
             @RequestPart("file") FilePart file,
             @RequestParam(defaultValue = "false") boolean overwrite) {
@@ -35,6 +39,7 @@ public class SkillController {
     }
 
     @PostMapping(value = "/archive", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "上传技能压缩包")
     public Mono<SkillDetailResponse> uploadArchive(
             @RequestPart("file") FilePart file,
             @RequestParam(defaultValue = "false") boolean overwrite) {
@@ -42,6 +47,7 @@ public class SkillController {
     }
 
     @PostMapping(value = "/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "上传多个技能文件")
     public Mono<SkillDetailResponse> uploadFiles(
             @RequestPart("files") Flux<FilePart> files,
             @RequestParam(defaultValue = "false") boolean overwrite) {
@@ -49,6 +55,7 @@ public class SkillController {
     }
 
     @GetMapping
+    @Operation(summary = "分页查询技能")
     public Mono<SkillPageResponse> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -56,6 +63,7 @@ public class SkillController {
     }
 
     @GetMapping("/{name}")
+    @Operation(summary = "查询技能详情")
     public Mono<SkillDetailResponse> detail(
             @PathVariable String name,
             @RequestParam(defaultValue = "false") boolean includeBodies) {
@@ -63,6 +71,7 @@ public class SkillController {
     }
 
     @DeleteMapping("/{name}")
+    @Operation(summary = "删除技能")
     public Mono<Void> delete(@PathVariable String name) {
         return retiredWrite();
     }

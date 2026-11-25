@@ -1,5 +1,8 @@
 package com.beyondzy.demo.web.auth;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.handler.admin.AuthCookieSupport;
 import com.beyondzy.demo.handler.admin.CurrentUser;
 import com.beyondzy.demo.service.auth.AuthService;
@@ -19,6 +22,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 登录 / 退出 / 当前用户。 */
+@Tag(name = "登录", description = "登录、退出和当前用户")
 @RestController
 @RequestMapping(value = "/api/auth", produces = MediaType.APPLICATION_JSON_VALUE)
 public class AuthController {
@@ -36,6 +40,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @Operation(summary = "登录")
     public Mono<ResponseEntity<AuthUserResponse>> login(
             @RequestBody LoginRequest body, ServerWebExchange exchange) {
         return Mono.fromCallable(() -> auth.login(body.phone(), body.password()))
@@ -51,6 +56,7 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
+    @Operation(summary = "退出")
     public Mono<ResponseEntity<Void>> logout(ServerWebExchange exchange) {
         String raw = cookies.readRawToken(exchange);
         String bearer = bearer(exchange);
@@ -64,6 +70,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
+    @Operation(summary = "查询当前用户")
     public Mono<AuthUserResponse> me() {
         return CurrentUser.require()
                 .flatMap(principal -> Mono.fromCallable(() -> {
@@ -73,6 +80,7 @@ public class AuthController {
     }
 
     @PostMapping(path = "/password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "修改密码")
     public Mono<ResponseEntity<Void>> changePassword(@RequestBody PasswordChange body) {
         return CurrentUser.require()
                 .flatMap(principal -> Mono.fromRunnable(() -> users.changePassword(
@@ -81,7 +89,9 @@ public class AuthController {
                 .thenReturn(ResponseEntity.noContent().build());
     }
 
-    public record PasswordChange(String currentPassword, String newPassword) {}
+    @Schema(description = "修改密码")
+    public record PasswordChange(@Schema(description = "当前密码") String currentPassword,
+            @Schema(description = "新密码") String newPassword) {}
 
     private static String bearer(ServerWebExchange exchange) {
         String header = exchange.getRequest().getHeaders().getFirst("Authorization");

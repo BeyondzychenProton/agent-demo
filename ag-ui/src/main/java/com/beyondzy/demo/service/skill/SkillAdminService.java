@@ -1,5 +1,9 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.support.SkillDraft;
+import com.beyondzy.demo.service.skill.view.SkillAdminView;
+
+import com.beyondzy.demo.contract.PageResult;
 import java.util.List;
 
 /**
@@ -8,7 +12,7 @@ import java.util.List;
  * <p>写入用自己的 SQL，不调用技能仓库的 save。仓库保持只读。
  */
 public interface SkillAdminService {
-    SkillAdminView.Page list(String query, String state, int page, int size);
+    PageResult<SkillAdminView.Item> list(String query, String state, int page, int size);
 
     SkillAdminView.Detail detail(String name);
 

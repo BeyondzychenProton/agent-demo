@@ -1,5 +1,10 @@
 package com.beyondzy.demo.service.skill;
 
+import com.beyondzy.demo.service.skill.impl.SkillManagementServiceImpl;
+import com.beyondzy.demo.service.skill.support.SkillDraft;
+import com.beyondzy.demo.service.skill.view.SkillManagementView;
+import com.beyondzy.demo.service.skill.view.SkillVersionView;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.beyondzy.demo.config.skill.VersionedSkillRepository;
@@ -76,7 +81,7 @@ class SkillReleaseLifecycleTest {
             var management = management(h);
             var all = management.page(null, "all", "all", 1, 20);
             assertEquals(2, all.total());
-            assertEquals(new SkillManagementService.Counts(2, 1, 0, 2), all.counts());
+            assertEquals(new SkillManagementView.Counts(2, 1, 0, 2), all.counts());
             assertEquals(2, management.page(null, "draft", "all", 1, 20).total());
             assertEquals(1, management.page("中文展示名", "all", "all", 1, 20).total());
             assertEquals(2, management.page("维护人", "all", "all", 1, 20).total());
@@ -100,7 +105,7 @@ class SkillReleaseLifecycleTest {
                 h.mapper(SkillVersionFileMapper.class), h.visibility);
     }
     private static SkillManagementService management(SkillAdminHarness h) {
-        return new SkillManagementService(h.mapper(SkillManagementMapper.class), h.mapper(SkillMapper.class),
+        return new SkillManagementServiceImpl(h.mapper(SkillManagementMapper.class), h.mapper(SkillMapper.class),
                 h.baselines, h.versions, h.admin, h.mapper(SkillVersionMapper.class));
     }
 }

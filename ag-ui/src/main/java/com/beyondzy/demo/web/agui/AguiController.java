@@ -1,5 +1,7 @@
 package com.beyondzy.demo.web.agui;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.agui.AguiService;
 import com.beyondzy.demo.handler.admin.AuthRequests;
 import com.beyondzy.demo.handler.admin.CurrentUser;
@@ -27,6 +29,7 @@ import reactor.core.publisher.Mono;
  * 线程的重命名/归档/删除仍只回显成功；真正的数据权威是 SessionLog。
  * 原有 /api 最小闭环接口保持不变，两套接口并存。
  */
+@Tag(name = "AG-UI", description = "CopilotKit 协议的薄外壳")
 @RestController
 @RequestMapping("/agui/run")
 public final class AguiController {
@@ -39,12 +42,14 @@ public final class AguiController {
 
     /** GET /agui/run/info：Runtime 能力与 agent 声明。 */
     @GetMapping("/info")
+    @Operation(summary = "查询运行时能力")
     public Mono<Map<String, Object>> info() {
         return AuthRequests.call(agui::info);
     }
 
     /** GET /agui/run/threads：按摘要更新时间分页列出会话。 */
     @GetMapping("/threads")
+    @Operation(summary = "查询线程列表")
     public Mono<Map<String, Object>> threads(
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(required = false) String cursor) {
@@ -61,12 +66,14 @@ public final class AguiController {
 
     /** POST /agui/run/threads：新建线程（只发 id，惰性落盘）。 */
     @PostMapping("/threads")
+    @Operation(summary = "创建线程")
     public Mono<Map<String, Object>> createThread(@RequestBody(required = false) Map<String, Object> body) {
         return AuthRequests.call(() -> agui.createThread(body == null ? Map.of() : body));
     }
 
     /** PATCH /agui/run/threads/{id}：保存当前用户的会话名称。 */
     @PatchMapping("/threads/{id}")
+    @Operation(summary = "重命名线程")
     public Mono<Map<String, Object>> renameThread(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         return AuthRequests.call(() -> {
@@ -77,6 +84,7 @@ public final class AguiController {
 
     /** POST /agui/run/threads/{id}/archive：归档（不落表，回显成功）。 */
     @PostMapping("/threads/{id}/archive")
+    @Operation(summary = "归档线程")
     public Mono<Map<String, Object>> archiveThread(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         return AuthRequests.call(() -> agui.noopThread(id, body == null ? Map.of() : body));
@@ -84,12 +92,14 @@ public final class AguiController {
 
     /** DELETE /agui/run/threads/{id}：删除（不删日志，仅回显成功）。 */
     @DeleteMapping("/threads/{id}")
+    @Operation(summary = "删除线程")
     public Mono<Map<String, Object>> deleteThread(@PathVariable String id) {
         return AuthRequests.call(() -> Map.of("deleted", true, "threadId", id));
     }
 
     /** GET /agui/run/threads/{id}/messages：历史消息。 */
     @GetMapping("/threads/{id}/messages")
+    @Operation(summary = "查询历史消息")
     public Mono<Map<String, Object>> messages(@PathVariable String id) {
         return AuthRequests.call(() -> agui.messages(id));
     }
@@ -98,6 +108,7 @@ public final class AguiController {
     @PostMapping(
             value = "/agent/{agentId}/connect",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "建立连接")
     public Flux<ServerSentEvent<String>> connect(
             @PathVariable String agentId, @RequestBody(required = false) Map<String, Object> body) {
         String threadId = str(body == null ? null : body.get("threadId"));
@@ -110,6 +121,7 @@ public final class AguiController {
     @PostMapping(
             value = "/agent/{agentId}/run",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "运行一轮对话")
     public Flux<ServerSentEvent<String>> run(
             @PathVariable String agentId, @RequestBody Map<String, Object> body) {
         return CurrentUser.requireUserId()

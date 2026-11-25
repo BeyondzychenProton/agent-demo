@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
 import com.beyondzy.demo.config.SkillTestSchema;
+import com.beyondzy.demo.config.mybatis.MybatisPages;
 import com.beyondzy.demo.config.mybatis.MybatisPlusMetaObjectHandler;
 import com.beyondzy.demo.config.skill.SkillGovernanceSchemaRunner;
 import com.beyondzy.demo.config.skill.SkillJdbc;
@@ -190,6 +191,7 @@ final class SkillAdminHarness implements AutoCloseable {
         GlobalConfigUtils.setGlobalConfig(configuration, globalConfig);
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.setLocalCacheScope(LocalCacheScope.STATEMENT);
+        configuration.addInterceptor(MybatisPages.interceptor());
         configuration.addMapper(SkillMapper.class);
         configuration.addMapper(SkillResourceMapper.class);
         configuration.addMapper(AgentSkillMapper.class);

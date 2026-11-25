@@ -1,6 +1,7 @@
 package com.beyondzy.demo.mapper.skill;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.beyondzy.demo.domain.skill.SkillImportBean;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,9 +36,8 @@ public interface SkillImportMapper extends BaseMapper<SkillImportBean> {
     SkillImportBean findBody(@Param("id") long id, @Param("actor") long actor);
 
     @Select("SELECT " + COLUMNS + " FROM ai_skill_import WHERE created_by = #{actor} "
-            + "AND (#{state} IS NULL OR state = #{state}) ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
-    List<SkillImportBean> page(@Param("actor") long actor, @Param("state") String state,
-            @Param("limit") int limit, @Param("offset") long offset);
+            + "AND (#{state} IS NULL OR state = #{state}) ORDER BY id DESC")
+    IPage<SkillImportBean> page(IPage<SkillImportBean> page, @Param("actor") long actor, @Param("state") String state);
 
     @Select("""
             SELECT COUNT(*) FROM ai_skill_import
@@ -106,4 +106,19 @@ public interface SkillImportMapper extends BaseMapper<SkillImportBean> {
               AND state IN ('UPLOADED', 'CHECKED', 'FAILED')
             """)
     int expire(@Param("id") long id, @Param("revision") long revision, @Param("now") LocalDateTime now);
+
+    @Update("""
+            <script>
+            UPDATE ai_skill_import
+            SET state = 'EXPIRED', revision = revision + 1, gmt_modified = #{now}
+            WHERE state IN ('UPLOADED', 'CHECKED', 'FAILED')
+              AND (id, revision) IN
+            <foreach collection="rows" item="row" open="(" separator="," close=")">
+                (#{row.id}, #{row.revision})
+            </foreach>
+            </script>
+            """)
+    int expireAll(@Param("rows") List<Due> rows, @Param("now") LocalDateTime now);
+
+    record Due(long id, long revision) {}
 }

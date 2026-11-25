@@ -1,5 +1,43 @@
 import { test, expect } from "@playwright/test";
 
+test("通讯录人数仅统计启用成员，停用成员可通过状态筛选查看", async ({ page }) => {
+ const directory = {
+  departments: [{ id: "root", parentId: null, name: "总公司", status: "0" }, { id: "child", parentId: "root", name: "研发部", status: "0" }],
+  users: [
+   { id: "1", departmentId: "root", account: "active-root", name: "启用直属成员", email: null, status: "0" },
+   { id: "2", departmentId: "child", account: "active-child", name: "启用子部门成员", email: null, status: "0" },
+   { id: "3", departmentId: null, account: "active-unassigned", name: "启用未分配成员", email: null, status: "0" },
+   { id: "4", departmentId: "root", account: "disabled-root", name: "停用直属成员", email: null, status: "1" },
+   { id: "5", departmentId: "child", account: "disabled-child", name: "停用子部门成员", email: null, status: "1" },
+  ],
+ };
+ await page.route("**/api/auth/me", route => route.fulfill({ json: { userId: 1, name: "管理员", phone: "000", admin: true } }));
+ await page.route("**/api/admin/directory", route => route.fulfill({ json: directory }));
+ await page.goto("/");
+ await page.getByRole("button", { name: "管理界面" }).click();
+ const organization = page.locator(".admin-org");
+ await expect(organization.getByRole("button", { name: "全部成员 3 位", exact: true })).toBeVisible();
+ await expect(organization.getByRole("button", { name: "总公司 2 位", exact: true })).toBeVisible();
+ await expect(organization.getByRole("button", { name: "研发部 1 位", exact: true })).toBeVisible();
+ await expect(page.getByLabel("筛选状态")).toHaveValue("0");
+ await expect(page.getByRole("row", { name: /启用未分配成员/ })).toBeVisible();
+ await expect(page.getByRole("row", { name: /停用直属成员/ })).toHaveCount(0);
+ await organization.getByRole("button", { name: "总公司 2 位", exact: true }).click();
+ await expect(page.getByRole("row", { name: /启用子部门成员/ })).toBeVisible();
+ await expect(page.getByRole("row", { name: /启用未分配成员/ })).toHaveCount(0);
+ await page.getByLabel("筛选状态").selectOption("1");
+ await expect(page.getByRole("row", { name: /停用直属成员/ })).toBeVisible();
+ await expect(page.getByRole("row", { name: /停用子部门成员/ })).toBeVisible();
+ await expect(organization.getByRole("button", { name: "总公司 2 位", exact: true })).toBeVisible();
+ await organization.getByRole("button", { name: "全部成员 3 位", exact: true }).click();
+ await page.getByLabel("筛选状态").selectOption("");
+ await expect(page.locator("tbody tr")).toHaveCount(5);
+ directory.users[1].status = "1";
+ await page.getByRole("button", { name: "刷新", exact: true }).press("Enter");
+ await expect(organization.getByRole("button", { name: "全部成员 2 位", exact: true })).toBeVisible();
+ await expect(organization.getByRole("button", { name: "研发部 0 位", exact: true })).toBeVisible();
+});
+
 test("用户与权限保留通讯录接口并支持多部门授权和个人排除", async ({page}) => {
  await page.route("**/api/auth/me", route=>route.fulfill({json:{userId:1,name:"管理员",phone:"000",admin:true}}));
  await page.route("**/api/admin/directory", route=>route.fulfill({json:{departments:[{id:"a",parentId:null,name:"研发部",status:"0"},{id:"b",parentId:null,name:"市场部",status:"0"}],users:[{id:"1",departmentId:"a",account:"alice",name:"张三",email:null,status:"0"},{id:"2",departmentId:"b",account:"bob",name:"李四",email:null,status:"1"}]}}));

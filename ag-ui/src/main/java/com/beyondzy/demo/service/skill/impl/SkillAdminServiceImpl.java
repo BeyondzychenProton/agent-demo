@@ -1,6 +1,9 @@
 package com.beyondzy.demo.service.skill.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.beyondzy.demo.config.skill.SkillJdbc;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.contract.Pages;
 import com.beyondzy.demo.domain.skill.SkillBean;
 import com.beyondzy.demo.domain.skill.SkillResourceBean;
 import com.beyondzy.demo.domain.skill.AgentSkillBean;
@@ -12,11 +15,13 @@ import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
 import com.beyondzy.demo.mapper.skill.SkillVersionMapper;
 import com.beyondzy.demo.mapper.skill.SkillReleaseMapper;
 import com.beyondzy.demo.domain.skill.SkillVersionBean;
-import com.beyondzy.demo.service.skill.SkillSupport;
+import com.beyondzy.demo.support.DbTimes;
+import com.beyondzy.demo.enums.skill.SkillVersionState;
+import com.beyondzy.demo.service.skill.support.SkillSupport;
 import com.beyondzy.demo.service.skill.SkillAdminService;
-import com.beyondzy.demo.service.skill.SkillAdminView;
-import com.beyondzy.demo.service.skill.SkillDocuments;
-import com.beyondzy.demo.service.skill.SkillDraft;
+import com.beyondzy.demo.service.skill.view.SkillAdminView;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillDraft;
 import com.beyondzy.demo.service.skill.SkillVisibilityService;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -57,14 +62,16 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    public SkillAdminView.Page list(String query, String state, int page, int size) {
-        if (page < 1 || size < 1 || size > 100) throw new SkillException(400, "分页参数不合法");
+    public PageResult<SkillAdminView.Item> list(String query, String state, int page, int size) {
+        if (!Pages.valid(page, size)) throw new SkillException(400, "分页参数不合法");
         String status = statusFilter(state);
         String like = likeQuery(query);
-        List<SkillAdminView.Item> items = skills.adminPage(like, status, size, (long) (page - 1) * size).stream()
+        Page<SkillBean> rows = new Page<>(page, size);
+        skills.adminPage(rows, like, status);
+        List<SkillAdminView.Item> items = rows.getRecords().stream()
                 .map(SkillAdminServiceImpl::item)
                 .toList();
-        return new SkillAdminView.Page(items, skills.adminCount(like, status), page, size);
+        return new PageResult<>(items, rows.getTotal(), page, size);
     }
 
     @Override
@@ -73,7 +80,7 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SkillAdminView.Detail create(long operatorId, SkillDraft draft) {
         if (draft == null) throw new SkillException(400, "请求体不能为空");
         String name = requiredName(draft.name());
@@ -89,7 +96,7 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SkillAdminView.Detail update(long operatorId, String name, SkillDraft draft) {
         SkillBean existing = require(name);
         if (draft == null) throw new SkillException(400, "请求体不能为空");
@@ -108,14 +115,18 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void setEnabled(String name, boolean enabled) {
-        require(name);
-        skills.updateStatus(name, enabled ? "0" : "1");
+        SkillBean row = require(name);
+        String next = enabled ? SkillBean.STATUS_ENABLED : SkillBean.STATUS_DISABLED;
+        if (next.equals(row.getStatus())) return;
+        if (skills.updateStatus(name, row.getStatus(), next) != 1) {
+            throw new SkillException(409, "技能状态已变化");
+        }
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(String name) {
         if (name == null || !SkillDocuments.NAME.matcher(name).matches()) throw new SkillException(400, "技能名不合法");
         SkillBean row = skills.lockByName(name);
@@ -130,7 +141,7 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public SkillAdminView.Detail importDocument(
             long operatorId, String filename, byte[] body, String visibleScope, Long ownerDeptId, String status) {
         SkillDocuments.Parsed parsed = zip(filename, body) ? SkillDocuments.archive(body) : SkillDocuments.markdown(body);
@@ -148,14 +159,34 @@ public class SkillAdminServiceImpl implements SkillAdminService {
 
     @Override
     public List<SkillAdminView.Option> options(long operatorId) {
-        List<SkillAdminView.Option> options = new ArrayList<>();
+        List<SkillBean> visible = new ArrayList<>();
         for (SkillBean skill : skills.listEnabled()) {
-            if (!visibility.visibleTo(skill, operatorId)) continue;
+            if (visibility.visibleTo(skill, operatorId)) visible.add(skill);
+        }
+        if (visible.isEmpty()) return List.of();
+        List<Long> skillIds = visible.stream().map(SkillBean::getId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, Long> currentBySkill = new LinkedHashMap<>();
+        if (!skillIds.isEmpty()) {
+            for (SkillReleaseMapper.ReleaseCurrent row : releases.currents(skillIds)) {
+                currentBySkill.putIfAbsent(row.skillId(), row.currentVersionId());
+            }
+        }
+        List<String> names = visible.stream().map(SkillBean::getName).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<String, List<SkillVersionBean>> published = new LinkedHashMap<>();
+        if (!names.isEmpty()) {
+            for (SkillVersionBean version : versions.listByNamesAndState(names, SkillVersionState.PUBLISHED.name())) {
+                List<SkillVersionBean> bucket = published.computeIfAbsent(version.getSkillName(), key -> new ArrayList<>());
+                if (bucket.size() < Pages.MAX_SIZE) bucket.add(version);
+            }
+        }
+        List<SkillAdminView.Option> options = new ArrayList<>();
+        for (SkillBean skill : visible) {
             options.add(new SkillAdminView.Option(skill.getName(), skill.getDescription(),
-                    SkillSupport.id(releases.current(skill.getId())),
-                    versions.page(skill.getName(), "PUBLISHED", 100, 0).stream()
-                            .map(v -> new SkillAdminView.VersionOption(SkillSupport.id(v.getId()), v.getPlatformVersion(),
-                                    Integer.toString(v.getVersionNo()))).toList()));
+                    SkillSupport.id(currentBySkill.get(skill.getId())),
+                    published.getOrDefault(skill.getName(), List.of()).stream()
+                            .map(version -> new SkillAdminView.VersionOption(SkillSupport.id(version.getId()),
+                                    version.getPlatformVersion(), Integer.toString(version.getVersionNo())))
+                            .toList()));
         }
         return List.copyOf(options);
     }
@@ -163,9 +194,17 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     @Override
     public SkillAdminView.Agent agent(String agentId) {
         requireAgent(agentId);
-        List<SkillAdminView.BoundSkill> skillsBound = bindings.listBound(agentId).stream()
+        List<SkillBean> rows = bindings.listBound(agentId);
+        List<Long> versionIds = rows.stream().map(SkillBean::getVersionId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, SkillVersionBean> versionsById = new LinkedHashMap<>();
+        if (!versionIds.isEmpty()) {
+            for (SkillVersionBean version : versions.findSummaries(versionIds)) {
+                versionsById.putIfAbsent(version.getId(), version);
+            }
+        }
+        List<SkillAdminView.BoundSkill> skillsBound = rows.stream()
                 .map(row -> {
-                    SkillVersionBean version = row.getVersionId() == null ? null : versions.find(row.getVersionId());
+                    SkillVersionBean version = row.getVersionId() == null ? null : versionsById.get(row.getVersionId());
                     return new SkillAdminView.BoundSkill(row.getName(), row.getDescription(), row.getStatus(),
                             row.getVisibleScope(), SkillSupport.id(row.getVersionId()),
                             version == null ? null : version.getPlatformVersion(),
@@ -176,14 +215,14 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void replaceBindings(long operatorId, String agentId, List<String> names) {
         if (names == null) throw new SkillException(400, "技能名单不能为空");
         replaceVersionBindings(operatorId, agentId, names.stream().distinct().map(name -> new Binding(name, null)).toList());
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void replaceVersionBindings(long operatorId, String agentId, List<Binding> requested) {
         requireAgent(agentId);
         if (requested == null) throw new SkillException(400, "技能名单不能为空");
@@ -205,25 +244,27 @@ public class SkillAdminServiceImpl implements SkillAdminService {
             Long chosen = unique.get(name) == null ? (previous == null ? current : previous)
                     : SkillSupport.positiveId(unique.get(name), "VERSION_NOT_FOUND", "版本不存在");
             boolean unchanged = held.containsKey(name) && (previous == null || previous.equals(chosen));
-            if (!"0".equals(skill.getStatus()) && !unchanged) throw new SkillException(400, "不能绑定已停用的技能: " + name);
+            if (!SkillBean.STATUS_ENABLED.equals(skill.getStatus()) && !unchanged) throw new SkillException(400, "不能绑定已停用的技能: " + name);
             if (!visibility.visibleTo(skill, operatorId)) {
                 if (!unchanged) throw new SkillException(400, "不能绑定当前账号不可见的技能: " + name);
             }
             SkillVersionBean version = versions.find(chosen);
-            if (version == null || !"PUBLISHED".equals(version.getState()) || !skill.getId().equals(version.getSkillId())
+            if (version == null || !SkillVersionState.PUBLISHED.name().equals(version.getState()) || !skill.getId().equals(version.getSkillId())
                     || !name.equals(version.getSkillName())) throw new SkillException(400, "只能固定该技能的已发布版本");
             skill.setVersionId(chosen);
             accepted.add(skill);
         }
         bindings.deleteByAgent(agentId);
+        List<AgentSkillBean> rows = new ArrayList<>();
         for (SkillBean skill : accepted) {
             AgentSkillBean row = new AgentSkillBean();
             row.setAgentId(agentId);
             row.setSkillId(skill.getId());
             row.setVersionId(skill.getVersionId());
             row.setCreatedBy(operatorId);
-            bindings.insert(row);
+            rows.add(row);
         }
+        if (!rows.isEmpty()) bindings.insertBindings(rows, DbTimes.now());
     }
 
     private void insert(SkillBean row) {
@@ -237,9 +278,15 @@ public class SkillAdminServiceImpl implements SkillAdminService {
 
     private void writeResources(Long skillId, List<StoredFile> files) {
         if (skillId == null) throw new SkillException(500, "技能主键没有生成");
+        if (files.isEmpty()) return;
+        List<SkillResourceBean> rows = new ArrayList<>();
         for (StoredFile file : files) {
-            resources.insertResource(skillId, file.path(), file.content());
+            SkillResourceBean row = new SkillResourceBean();
+            row.setResourcePath(file.path());
+            row.setResourceContent(file.content());
+            rows.add(row);
         }
+        resources.insertResources(skillId, rows);
     }
 
     private void replaceResources(Long skillId, List<StoredFile> files) {
@@ -259,15 +306,15 @@ public class SkillAdminServiceImpl implements SkillAdminService {
     }
 
     private static String statusCode(String status) {
-        if (status == null || status.isBlank() || "0".equals(status)) return "0";
-        if ("1".equals(status)) return "1";
+        if (status == null || status.isBlank() || SkillBean.STATUS_ENABLED.equals(status)) return SkillBean.STATUS_ENABLED;
+        if (SkillBean.STATUS_DISABLED.equals(status)) return SkillBean.STATUS_DISABLED;
         throw new SkillException(400, "状态不合法");
     }
 
     private static String statusFilter(String state) {
         if (state == null || state.isBlank() || "all".equals(state)) return null;
-        if ("enabled".equals(state)) return "0";
-        if ("disabled".equals(state)) return "1";
+        if ("enabled".equals(state)) return SkillBean.STATUS_ENABLED;
+        if ("disabled".equals(state)) return SkillBean.STATUS_DISABLED;
         throw new SkillException(400, "状态筛选不合法");
     }
 

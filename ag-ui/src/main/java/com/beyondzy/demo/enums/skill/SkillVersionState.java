@@ -1,8 +1,10 @@
 package com.beyondzy.demo.enums.skill;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.beyondzy.demo.exception.skill.SkillException;
 
 /** 版本状态。与技能启停无关。本次不暴露归档操作。 */
+@Schema(description = "版本状态。与技能启停无关。本次不暴露归档操作。")
 public enum SkillVersionState {
     DRAFT,
     PUBLISHED,

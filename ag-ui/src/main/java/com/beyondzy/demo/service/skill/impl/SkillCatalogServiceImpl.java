@@ -1,14 +1,17 @@
 package com.beyondzy.demo.service.skill.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.contract.Pages;
 import com.beyondzy.demo.domain.skill.SkillBean;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.mapper.skill.SkillMapper;
 import com.beyondzy.demo.mapper.skill.SkillResourceMapper;
 import com.beyondzy.demo.service.skill.SkillCatalogService;
-import com.beyondzy.demo.service.skill.SkillDocuments;
-import com.beyondzy.demo.service.skill.SkillPage;
-import com.beyondzy.demo.service.skill.SkillUpload;
-import com.beyondzy.demo.service.skill.SkillView;
+import com.beyondzy.demo.service.skill.support.SkillDocuments;
+import com.beyondzy.demo.service.skill.support.SkillUpload;
+import com.beyondzy.demo.service.skill.view.SkillView;
+import com.beyondzy.demo.service.skill.view.SkillSummary;
 import io.agentscope.core.skill.AgentSkill;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
 import java.util.ArrayList;
@@ -46,13 +49,14 @@ public class SkillCatalogServiceImpl implements SkillCatalogService {
     }
 
     @Override
-    public SkillPage list(int page, int size) {
-        if (page < 1 || size < 1 || size > 100) throw new SkillException(400, "分页参数不合法");
-        long total = skills.countAll();
-        List<SkillPage.SkillSummary> items = skills.page(size, (long) (page - 1) * size).stream()
+    public PageResult<SkillSummary> list(int page, int size) {
+        if (!Pages.valid(page, size)) throw new SkillException(400, "分页参数不合法");
+        Page<SkillBean> query = new Page<>(page, size);
+        skills.page(query);
+        List<SkillSummary> items = query.getRecords().stream()
                 .map(SkillCatalogServiceImpl::summary)
                 .toList();
-        return new SkillPage(items, total, page, size);
+        return new PageResult<>(items, query.getTotal(), page, size);
     }
 
     @Override
@@ -89,9 +93,9 @@ public class SkillCatalogServiceImpl implements SkillCatalogService {
         return row;
     }
 
-    private static SkillPage.SkillSummary summary(SkillBean row) {
+    private static SkillSummary summary(SkillBean row) {
         int count = row.getResourceCount() == null ? 0 : row.getResourceCount();
-        return new SkillPage.SkillSummary(
+        return new SkillSummary(
                 row.getName(), row.getDescription(), row.getCreatedAt(), row.getUpdatedAt(), count);
     }
 }

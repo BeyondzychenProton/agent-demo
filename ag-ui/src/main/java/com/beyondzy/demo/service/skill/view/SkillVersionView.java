@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.view;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
@@ -37,8 +37,6 @@ public record SkillVersionView(
             String state,
             String publishedAt,
             String revision) {}
-
-    public record Page(List<Summary> items, long total, int page, int size) {}
 
     public record FileBody(String filename, byte[] body, boolean text, boolean attachment) {}
 

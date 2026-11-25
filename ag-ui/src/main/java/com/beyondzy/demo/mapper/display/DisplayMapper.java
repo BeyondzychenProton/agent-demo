@@ -53,6 +53,28 @@ public interface DisplayMapper {
                    @Param("runId") String runId, @Param("status") String status,
                    @Param("now") LocalDateTime now);
 
+    @Insert("""
+            <script>
+            INSERT INTO display_message(thread_id,ordinal,message_id,role,content,gmt_create,gmt_modified) VALUES
+            <foreach collection="rows" item="row" index="ordinal" separator=",">
+            (#{threadId},#{ordinal},#{row.messageId},#{row.role},#{row.content},#{now},#{now})
+            </foreach>
+            </script>
+            """)
+    int insertMessages(@Param("threadId") String threadId, @Param("rows") List<DisplayMessageBean> rows,
+                       @Param("now") LocalDateTime now);
+
+    @Insert("""
+            <script>
+            INSERT INTO display_turn(thread_id,ordinal,run_id,status,gmt_create,gmt_modified) VALUES
+            <foreach collection="rows" item="row" index="ordinal" separator=",">
+            (#{threadId},#{ordinal},#{row.runId},#{row.status},#{now},#{now})
+            </foreach>
+            </script>
+            """)
+    int insertTurns(@Param("threadId") String threadId, @Param("rows") List<DisplayTurnBean> rows,
+                    @Param("now") LocalDateTime now);
+
     /** 幂等写入/更新展示快照水位。 */
     @Insert("INSERT INTO display_head(thread_id,seq,gmt_create,gmt_modified) VALUES(#{threadId},#{seq},#{now},#{now}) "
             + "ON DUPLICATE KEY UPDATE seq=VALUES(seq), gmt_modified=VALUES(gmt_modified)")

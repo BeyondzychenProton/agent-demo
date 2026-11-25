@@ -1,8 +1,11 @@
 package com.beyondzy.demo.web.skill;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.beyondzy.demo.exception.skill.SkillException;
 import com.beyondzy.demo.service.skill.SkillAdminService;
-import com.beyondzy.demo.service.skill.SkillAdminView;
+import com.beyondzy.demo.contract.PageResult;
+import com.beyondzy.demo.service.skill.view.SkillAdminView;
 import com.beyondzy.demo.service.user.UserService;
 import com.beyondzy.demo.web.skill.req.SaveSkillRequest;
 import com.beyondzy.demo.web.skill.req.SkillStatusRequest;
@@ -26,6 +29,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /** 平台管理员维护技能。options 注册在 /{name} 前面，避免被当成技能名。 */
+@Tag(name = "技能维护", description = "平台管理员维护技能")
 @RestController
 @RequestMapping(value = "/api/admin/skills", produces = MediaType.APPLICATION_JSON_VALUE)
 public class SkillAdminController {
@@ -38,6 +42,7 @@ public class SkillAdminController {
     }
 
     @GetMapping
+    @Operation(summary = "分页查询技能")
     public Mono<SkillAdminPageResponse> list(
             @RequestParam(name = "q", required = false) String query,
             @RequestParam(defaultValue = "all") String state,
@@ -48,6 +53,7 @@ public class SkillAdminController {
     }
 
     @GetMapping("/options")
+    @Operation(summary = "查询可绑定的技能")
     public Mono<List<SkillOptionResponse>> options() {
         return admin().flatMap(id -> Mono.fromCallable(() -> skills.options(id).stream()
                         .map(option -> new SkillOptionResponse(option.name(), option.description(), option.currentVersionId(), option.versions()))
@@ -56,34 +62,40 @@ public class SkillAdminController {
     }
 
     @GetMapping("/{name}")
+    @Operation(summary = "查询技能详情")
     public Mono<SkillAdminDetailResponse> detail(@PathVariable String name) {
         return admin().flatMap(id -> Mono.fromCallable(() -> detail(skills.detail(name)))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @PostMapping
+    @Operation(summary = "创建技能")
     public Mono<SkillAdminDetailResponse> create(@RequestBody SaveSkillRequest request) {
         return Mono.error(new SkillException(410, "LEGACY_WRITE_DISABLED", "请通过技能草稿创建，发布后才会写入运行内容"));
     }
 
     @PutMapping("/{name}")
+    @Operation(summary = "保存技能")
     public Mono<SkillAdminDetailResponse> update(@PathVariable String name, @RequestBody SaveSkillRequest request) {
         return Mono.error(new SkillException(410, "LEGACY_WRITE_DISABLED", "请通过技能草稿修改，发布后才会更新运行内容"));
     }
 
     @PostMapping("/{name}/status")
+    @Operation(summary = "修改技能启停")
     public Mono<Void> status(@PathVariable String name, @RequestBody SkillStatusRequest request) {
         return admin().flatMap(id -> Mono.<Void>fromRunnable(() -> skills.setEnabled(name, request.enabled()))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @DeleteMapping("/{name}")
+    @Operation(summary = "删除技能")
     public Mono<Void> delete(@PathVariable String name) {
         return admin().flatMap(id -> Mono.<Void>fromRunnable(() -> skills.delete(name))
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "导入技能文档")
     public Mono<SkillAdminDetailResponse> importSkill(
             @RequestPart("file") FilePart file,
             @RequestParam(required = false) String visibleScope,
@@ -96,7 +108,7 @@ public class SkillAdminController {
         return SkillAdminAccess.requireAdmin(users);
     }
 
-    private static SkillAdminPageResponse page(SkillAdminView.Page page) {
+    private static SkillAdminPageResponse page(PageResult<SkillAdminView.Item> page) {
         return new SkillAdminPageResponse(
                 page.items().stream()
                         .map(item -> new SkillAdminPageResponse.Item(

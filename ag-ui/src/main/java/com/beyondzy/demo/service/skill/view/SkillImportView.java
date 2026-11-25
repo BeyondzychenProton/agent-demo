@@ -1,4 +1,4 @@
-package com.beyondzy.demo.service.skill;
+package com.beyondzy.demo.service.skill.view;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -66,8 +66,6 @@ public record SkillImportView(
             boolean sourceAvailable,
             String expiresAt,
             String targetName) {}
-
-    public record Page(List<Summary> items, long total, int page, int size) {}
 
     public record Created(SkillImportView view, boolean created) {}
 

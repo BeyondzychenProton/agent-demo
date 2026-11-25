@@ -36,4 +36,14 @@ public interface SkillResourceMapper extends BaseMapper<SkillResourceBean> {
             VALUES (#{id}, #{path}, #{content})
             """)
     int insertResource(@Param("id") long id, @Param("path") String path, @Param("content") String content);
+
+    @Insert("""
+            <script>
+            INSERT INTO agentscope_skill_resources (id, resource_path, resource_content) VALUES
+            <foreach collection="rows" item="row" separator=",">
+                (#{id}, #{row.resourcePath}, #{row.resourceContent})
+            </foreach>
+            </script>
+            """)
+    int insertResources(@Param("id") long id, @Param("rows") List<SkillResourceBean> rows);
 }
