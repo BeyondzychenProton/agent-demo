@@ -1,5 +1,8 @@
 package com.beyondzy.demo.domain.skill;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -13,6 +16,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "智能体和技能的绑定。对应表：ai_agent_skill。")
 @TableName("ai_agent_skill")
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class AgentSkillBean extends BaseAuditBean {
     @Schema(description = "主键")
     @TableId(type = IdType.AUTO)
@@ -25,15 +30,4 @@ public class AgentSkillBean extends BaseAuditBean {
     private Long versionId;
     @Schema(description = "保存这次绑定的 app_user.id")
     private Long createdBy;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getAgentId() { return agentId; }
-    public void setAgentId(String agentId) { this.agentId = agentId; }
-    public Long getSkillId() { return skillId; }
-    public void setSkillId(Long skillId) { this.skillId = skillId; }
-    public Long getVersionId() { return versionId; }
-    public void setVersionId(Long versionId) { this.versionId = versionId; }
-    public Long getCreatedBy() { return createdBy; }
-    public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
 }

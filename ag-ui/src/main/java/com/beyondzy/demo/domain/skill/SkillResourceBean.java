@@ -1,5 +1,7 @@
 package com.beyondzy.demo.domain.skill;
 
+import lombok.Data;
+
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -12,6 +14,7 @@ import java.time.LocalDateTime;
  */
 @Schema(description = "技能附属文件。对应表：agentscope_skill_resources。主键是 (id, resource_path)，删除随技能级联。")
 @TableName("agentscope_skill_resources")
+@Data
 public class SkillResourceBean {
     private Long id;
     @TableField("resource_path")
@@ -22,15 +25,4 @@ public class SkillResourceBean {
     private LocalDateTime createdAt;
     @TableField("updated_at")
     private LocalDateTime updatedAt;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getResourcePath() { return resourcePath; }
-    public void setResourcePath(String resourcePath) { this.resourcePath = resourcePath; }
-    public String getResourceContent() { return resourceContent; }
-    public void setResourceContent(String resourceContent) { this.resourceContent = resourceContent; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

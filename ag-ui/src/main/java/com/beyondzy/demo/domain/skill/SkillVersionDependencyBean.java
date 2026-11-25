@@ -1,5 +1,8 @@
 package com.beyondzy.demo.domain.skill;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -10,6 +13,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /** 版本内一条源依赖的映射。目标快照只用于解释，发布时仍要核对真实目录。 */
 @Schema(description = "版本内一条源依赖的映射。目标快照只用于解释，发布时仍要核对真实目录。")
 @TableName("ai_skill_version_dependency")
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class SkillVersionDependencyBean extends BaseAuditBean {
     public static final String OPTIONAL = "0";
     public static final String REQUIRED = "1";
@@ -46,27 +51,4 @@ public class SkillVersionDependencyBean extends BaseAuditBean {
     @Schema(description = "目标展示及配置摘要快照，不含令牌等认证秘密")
     @TableField("target_snapshot_json")
     private String targetSnapshotJson;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public Long getVersionId() { return versionId; }
-    public void setVersionId(Long versionId) { this.versionId = versionId; }
-    public String getSourceKey() { return sourceKey; }
-    public void setSourceKey(String sourceKey) { this.sourceKey = sourceKey; }
-    public String getCapabilityKey() { return capabilityKey; }
-    public void setCapabilityKey(String capabilityKey) { this.capabilityKey = capabilityKey; }
-    public String getRequiredFlag() { return requiredFlag; }
-    public void setRequiredFlag(String requiredFlag) { this.requiredFlag = requiredFlag; }
-    public String getTargetKind() { return targetKind; }
-    public void setTargetKind(String targetKind) { this.targetKind = targetKind; }
-    public String getTargetProviderKey() { return targetProviderKey; }
-    public void setTargetProviderKey(String targetProviderKey) { this.targetProviderKey = targetProviderKey; }
-    public String getTargetToolKey() { return targetToolKey; }
-    public void setTargetToolKey(String targetToolKey) { this.targetToolKey = targetToolKey; }
-    public String getMappingState() { return mappingState; }
-    public void setMappingState(String mappingState) { this.mappingState = mappingState; }
-    public String getReason() { return reason; }
-    public void setReason(String reason) { this.reason = reason; }
-    public String getTargetSnapshotJson() { return targetSnapshotJson; }
-    public void setTargetSnapshotJson(String targetSnapshotJson) { this.targetSnapshotJson = targetSnapshotJson; }
 }

@@ -1,5 +1,8 @@
 package com.beyondzy.demo.domain.directory;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -9,6 +12,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /** 用户通讯录实体，主键沿用满天星用户 ID。 */
 @Schema(description = "用户通讯录实体，主键沿用满天星用户 ID。")
 @TableName("app_directory_user")
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class DirectoryUserBean extends BaseAuditBean {
     public static final String STATUS_ENABLED = "0";
     public static final String STATUS_DISABLED = "1";
@@ -32,21 +37,4 @@ public class DirectoryUserBean extends BaseAuditBean {
     private String status;
     @Schema(description = "软删除标记：0 未删 / 1 已删")
     private Integer isDeleted;
-
-    public Long getSourceId() { return sourceId; }
-    public void setSourceId(Long sourceId) { this.sourceId = sourceId; }
-    public Long getSourceVersion() { return sourceVersion; }
-    public void setSourceVersion(Long sourceVersion) { this.sourceVersion = sourceVersion; }
-    public Long getDepartmentId() { return departmentId; }
-    public void setDepartmentId(Long departmentId) { this.departmentId = departmentId; }
-    public String getAccount() { return account; }
-    public void setAccount(String account) { this.account = account; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public Integer getIsDeleted() { return isDeleted; }
-    public void setIsDeleted(Integer isDeleted) { this.isDeleted = isDeleted; }
 }

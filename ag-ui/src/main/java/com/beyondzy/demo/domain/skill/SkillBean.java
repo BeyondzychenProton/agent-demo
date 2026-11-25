@@ -1,5 +1,7 @@
 package com.beyondzy.demo.domain.skill;
 
+import lombok.Data;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -14,6 +16,7 @@ import java.time.LocalDateTime;
  */
 @Schema(description = "全局技能行。对应表：agentscope_skills。")
 @TableName("agentscope_skills")
+@Data
 public class SkillBean {
     public static final String STATUS_ENABLED = "0";
     public static final String STATUS_DISABLED = "1";
@@ -54,37 +57,4 @@ public class SkillBean {
     @Schema(description = "固定的已发布技能版本；存量迁移后填充")
     @TableField(exist = false)
     private Long versionId;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-    public String getSkillContent() { return skillContent; }
-    public void setSkillContent(String skillContent) { this.skillContent = skillContent; }
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
-    public String getMetadataJson() { return metadataJson; }
-    public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public String getVisibleScope() { return visibleScope; }
-    public void setVisibleScope(String visibleScope) { this.visibleScope = visibleScope; }
-    public Long getOwnerDeptId() { return ownerDeptId; }
-    public void setOwnerDeptId(Long ownerDeptId) { this.ownerDeptId = ownerDeptId; }
-    public Long getCreateBy() { return createBy; }
-    public void setCreateBy(Long createBy) { this.createBy = createBy; }
-    public Integer getResourceCount() { return resourceCount; }
-    public void setResourceCount(Integer resourceCount) { this.resourceCount = resourceCount; }
-    public String getOwnerDeptName() { return ownerDeptName; }
-    public void setOwnerDeptName(String ownerDeptName) { this.ownerDeptName = ownerDeptName; }
-    public Integer getBound() { return bound; }
-    public void setBound(Integer bound) { this.bound = bound; }
-    public Long getVersionId() { return versionId; }
-    public void setVersionId(Long versionId) { this.versionId = versionId; }
 }

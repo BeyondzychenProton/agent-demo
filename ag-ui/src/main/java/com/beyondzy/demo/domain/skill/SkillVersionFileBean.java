@@ -1,5 +1,8 @@
 package com.beyondzy.demo.domain.skill;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -10,6 +13,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /** 版本内的原始文件字节。脚本只保留，不表示可以执行。 */
 @Schema(description = "版本内的原始文件字节。脚本只保留，不表示可以执行。")
 @TableName("ai_skill_version_file")
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class SkillVersionFileBean extends BaseAuditBean {
     @Schema(description = "版本文件主键")
     @TableId(type = IdType.AUTO)
@@ -31,19 +36,4 @@ public class SkillVersionFileBean extends BaseAuditBean {
     @Schema(description = "文件字节数，由服务端计算")
     @TableField("byte_size")
     private Integer byteSize;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public Long getVersionId() { return versionId; }
-    public void setVersionId(Long versionId) { this.versionId = versionId; }
-    public String getResourcePath() { return resourcePath; }
-    public void setResourcePath(String resourcePath) { this.resourcePath = resourcePath; }
-    public String getFileKind() { return fileKind; }
-    public void setFileKind(String fileKind) { this.fileKind = fileKind; }
-    public byte[] getContent() { return content; }
-    public void setContent(byte[] content) { this.content = content; }
-    public String getContentSha256() { return contentSha256; }
-    public void setContentSha256(String contentSha256) { this.contentSha256 = contentSha256; }
-    public Integer getByteSize() { return byteSize; }
-    public void setByteSize(Integer byteSize) { this.byteSize = byteSize; }
 }

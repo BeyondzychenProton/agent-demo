@@ -1,5 +1,8 @@
 package com.beyondzy.demo.domain.mcp;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 import com.baomidou.mybatisplus.annotation.*;
 import com.beyondzy.demo.domain.BaseAuditBean;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -8,6 +11,8 @@ import java.time.LocalDateTime;
 /** MCP 服务的管理操作记录，只追加，不记录每次工具调用。 */
 @Schema(description = "MCP 服务的管理操作记录，只追加，不记录每次工具调用。")
 @TableName("ai_mcp_operation")
+@Data
+@EqualsAndHashCode(callSuper = true)
 public class McpOperationBean extends BaseAuditBean {
     @Schema(description = "操作记录主键")
     @TableId(type = IdType.AUTO)
@@ -28,22 +33,4 @@ public class McpOperationBean extends BaseAuditBean {
     private String result;
     @Schema(description = "本次操作写入的修改前后值、工具键、目录增减计数或错误码")
     private String detailJson;
-    public Long getId() { return id; }
-    public void setId(Long value) { id = value; }
-    public Long getServiceId() { return serviceId; }
-    public void setServiceId(Long value) { serviceId = value; }
-    public Long getToolId() { return toolId; }
-    public void setToolId(Long value) { toolId = value; }
-    public String getAction() { return action; }
-    public void setAction(String value) { action = value; }
-    public Long getActorId() { return actorId; }
-    public void setActorId(Long value) { actorId = value; }
-    public String getActorName() { return actorName; }
-    public void setActorName(String value) { actorName = value; }
-    public String getOrigin() { return origin; }
-    public void setOrigin(String value) { origin = value; }
-    public String getResult() { return result; }
-    public void setResult(String value) { result = value; }
-    public String getDetailJson() { return detailJson; }
-    public void setDetailJson(String value) { detailJson = value; }
 }

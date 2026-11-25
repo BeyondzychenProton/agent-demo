@@ -112,6 +112,11 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
         <!-- 用户密码 BCrypt；WebFlux 登录态由 Spring Security 鉴权链承载。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

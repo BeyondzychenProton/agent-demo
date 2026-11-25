@@ -1,5 +1,7 @@
 package com.beyondzy.demo.domain.directory;
 
+import lombok.Data;
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -9,6 +11,7 @@ import java.time.LocalDateTime;
 /** 单次推送的处理记录，创建时间由数据库填写。 */
 @Schema(description = "单次推送的处理记录，创建时间由数据库填写。")
 @TableName("app_directory_push_history")
+@Data
 public class DirectoryPushHistoryBean {
     @Schema(description = "推送历史主键")
     @TableId(type = IdType.AUTO)
@@ -25,19 +28,4 @@ public class DirectoryPushHistoryBean {
     private String payload;
     @Schema(description = "历史入库时间")
     private LocalDateTime gmtCreate;
-
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getSource() { return source; }
-    public void setSource(String source) { this.source = source; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public Integer getDepartmentCount() { return departmentCount; }
-    public void setDepartmentCount(Integer departmentCount) { this.departmentCount = departmentCount; }
-    public Integer getUserCount() { return userCount; }
-    public void setUserCount(Integer userCount) { this.userCount = userCount; }
-    public String getPayload() { return payload; }
-    public void setPayload(String payload) { this.payload = payload; }
-    public LocalDateTime getGmtCreate() { return gmtCreate; }
-    public void setGmtCreate(LocalDateTime gmtCreate) { this.gmtCreate = gmtCreate; }
 }
