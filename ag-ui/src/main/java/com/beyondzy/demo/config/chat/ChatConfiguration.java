@@ -9,6 +9,8 @@ import com.beyondzy.demo.mapper.skill.SkillVersionFileMapper;
 import com.beyondzy.demo.domain.user.UserBean;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.mantianxing.MantianxingMcpClient;
+import com.beyondzy.demo.service.mcp.*;
+import java.time.Duration;
 import com.beyondzy.demo.service.session.AgentSessionService;
 import com.beyondzy.demo.session.ChatSessions;
 import io.agentscope.core.skill.repository.AgentSkillRepository;
@@ -22,10 +24,6 @@ import com.beyondzy.demo.service.user.UserService;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -40,7 +38,6 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 public class ChatConfiguration {
-    private static final Logger logger = LoggerFactory.getLogger(ChatConfiguration.class);
 
     @Bean
     AbstractJdbcDialect skillDialect(DataSource dataSource) {
@@ -94,28 +91,20 @@ public class ChatConfiguration {
     @Bean
     McpServer mantianxingMcp(
             UserService users,
+            McpRegistry registry,
+            McpManagementService management,
+            McpInvocationGuard guard,
+            @Value("${mcp.environment:未配置}") String environment,
             @Value("${mcp.endpoint:}") String mcpEndpoint,
             @Value("${mcp.app-key:}") String mcpAppKey,
             @Value("${mcp.secret:}") String mcpSecret,
             @Value("${mcp.discovery-phone:}") String mcpDiscoveryPhone) {
-        List<McpServer> servers = mcpServers(users, mcpEndpoint, mcpAppKey, mcpSecret, mcpDiscoveryPhone);
-        return servers.isEmpty() ? null : servers.get(0);
-    }
-
-    private List<McpServer> mcpServers(
-            UserService users, String mcpEndpoint, String mcpAppKey, String mcpSecret, String mcpDiscoveryPhone) {
-        List<McpServer> mcpServers = new ArrayList<>();
-        MantianxingMcpClient mantianxing = MantianxingMcpClient.ifConfigured(
-                mcpEndpoint, mcpAppKey, mcpSecret, mcpDiscoveryPhone, userId -> phoneOf(users, userId));
-        if (mantianxing == null) {
-            if (hasText(mcpEndpoint) || hasText(mcpAppKey) || hasText(mcpSecret)) {
-                logger.warn("满天星 MCP 未启用：需要同时配置 mcp.endpoint、mcp.app-key 与 mcp.secret");
-            }
-        } else {
-            logger.info("满天星 MCP 已配置 endpoint={}", mcpEndpoint.trim());
-            mcpServers.add(mantianxing);
-        }
-        return mcpServers;
+        if (!hasText(mcpEndpoint) || !hasText(mcpAppKey) || !hasText(mcpSecret)) return null;
+        MantianxingMcpClient client = new MantianxingMcpClient(mcpEndpoint, mcpAppKey, mcpSecret,
+                Duration.ofSeconds(15), mcpDiscoveryPhone, userId -> phoneOf(users,userId),guard);
+        registry.register(client,new McpRegistry.Descriptor("满天星 OA · 会议服务",mcpEndpoint,
+                "Streamable HTTP","应用签名 · 凭证已配置",environment));
+        return new ManagedMcpServer(client,management,registry);
     }
 
     private static String phoneOf(UserService users, String userId) {

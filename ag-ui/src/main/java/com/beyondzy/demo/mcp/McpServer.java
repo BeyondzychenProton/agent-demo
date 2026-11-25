@@ -17,6 +17,11 @@ public interface McpServer {
     /** 启动时发现工具。失败抛出运行时异常，由装配方决定是否跳过这一家。 */
     List<McpToolDefinition> listTools();
 
+    /** 启动挂载可登记同一份发现快照，普通目录查询仍使用 listTools。 */
+    default List<McpToolDefinition> toolsForMount() { return listTools(); }
+
+    default void mounted(List<McpBoundTool> tools) {}
+
     /**
      * 以当前登录用户调用工具。
      * userId 可能为空；实现自行决定如何换成自己的身份，不能从 arguments 里推断调用者。

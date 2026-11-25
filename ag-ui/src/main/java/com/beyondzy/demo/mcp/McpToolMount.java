@@ -27,7 +27,9 @@ public final class McpToolMount {
     public static List<McpBoundTool> install(Toolkit toolkit, McpServer server) {
         if (toolkit == null) throw new IllegalArgumentException("toolkit 不能为空");
         if (server == null) throw new IllegalArgumentException("MCP 服务不能为空");
-        return install(toolkit, server.id(), server.listTools(), server);
+        List<McpBoundTool> tools = install(toolkit, server.id(), server.toolsForMount(), server);
+        server.mounted(tools);
+        return tools;
     }
 
     private static List<McpBoundTool> install(

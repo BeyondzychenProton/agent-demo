@@ -4,6 +4,7 @@ import com.beyondzy.demo.exception.mcp.McpCallException;
 import com.beyondzy.demo.mcp.McpCallResult;
 import com.beyondzy.demo.mcp.McpServer;
 import com.beyondzy.demo.mcp.McpToolDefinition;
+import com.beyondzy.demo.mcp.McpInvocationCheck;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,6 +55,8 @@ public final class MantianxingMcpClient implements McpServer {
     private final String discoveryPhone;
     private final MantianxingPhoneLookup phones;
     private final AtomicInteger ids = new AtomicInteger();
+    private final McpInvocationCheck invocationCheck;
+    private final ThreadLocal<Long> discoveryDeadline = new ThreadLocal<>();
 
     public MantianxingMcpClient(
             String endpoint,
@@ -62,6 +65,12 @@ public final class MantianxingMcpClient implements McpServer {
             Duration timeout,
             String discoveryPhone,
             MantianxingPhoneLookup phones) {
+        this(endpoint, appKey, secret, timeout, discoveryPhone, phones, (provider, tool) -> {});
+    }
+
+    public MantianxingMcpClient(
+            String endpoint, String appKey, String secret, Duration timeout,
+            String discoveryPhone, MantianxingPhoneLookup phones, McpInvocationCheck invocationCheck) {
         if (endpoint == null || endpoint.isBlank()) throw new IllegalArgumentException("MCP 地址不能为空");
         if (appKey == null || appKey.isBlank()) throw new IllegalArgumentException("MCP App Key 不能为空");
         if (secret == null || secret.isBlank()) throw new IllegalArgumentException("MCP Secret 不能为空");
@@ -81,6 +90,7 @@ public final class MantianxingMcpClient implements McpServer {
         this.timeout = timeout;
         this.discoveryPhone = discoveryPhone;
         this.phones = phones;
+        this.invocationCheck = java.util.Objects.requireNonNull(invocationCheck);
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     }
 
@@ -124,6 +134,8 @@ public final class MantianxingMcpClient implements McpServer {
     }
 
     private List<McpToolDefinition> listToolsFor(String userPhone) {
+        discoveryDeadline.set(System.nanoTime() + Duration.ofSeconds(45).toNanos());
+        try {
         String session = openSession(userPhone);
         JsonNode result = request(userPhone, session, "tools/list", Map.of());
         List<McpToolDefinition> tools = new ArrayList<>();
@@ -135,7 +147,9 @@ public final class MantianxingMcpClient implements McpServer {
             collect(page, tools);
             cursor = text(page, "nextCursor");
         }
+        if (cursor != null) throw new McpCallException("DISCOVERY_INCOMPLETE", "工具分页未完整读取");
         return List.copyOf(tools);
+        } finally { discoveryDeadline.remove(); }
     }
 
     private McpCallResult callWithPhone(String toolName, Map<String, Object> arguments, String userPhone) {
@@ -191,7 +205,7 @@ public final class MantianxingMcpClient implements McpServer {
         String signature = MantianxingSignature.sign(secret, timestamp, phone);
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
-                    .timeout(timeout)
+                    .timeout(requestTimeout())
                     .header("X-MCP-App-Key", appKey)
                     .header("X-MCP-Timestamp", timestamp)
                     .header("X-MCP-User-Phone", phone)
@@ -200,6 +214,8 @@ public final class MantianxingMcpClient implements McpServer {
                     .header("Accept", "application/json, text/event-stream")
                     .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(payload)));
             if (sessionId != null && !sessionId.isBlank()) request.header("Mcp-Session-Id", sessionId);
+            // 最终检查必须晚于 initialize，也覆盖用户批准后恢复执行的调用。
+            if ("tools/call".equals(method)) invocationCheck.check(id(), String.valueOf(params.get("name")));
             HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
             String nextSession = response.headers().firstValue("Mcp-Session-Id").orElse(sessionId);
             int status = response.statusCode();
@@ -228,13 +244,25 @@ public final class MantianxingMcpClient implements McpServer {
         }
     }
 
+    private Duration requestTimeout() {
+        Long deadline = discoveryDeadline.get();
+        if (deadline == null) return timeout;
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) throw new McpCallException("DISCOVERY_TIMEOUT", "工具发现超过总时限");
+        return Duration.ofNanos(Math.min(timeout.toNanos(), remaining));
+    }
+
     private static void collect(JsonNode result, List<McpToolDefinition> tools) {
         JsonNode listed = result == null ? null : result.get("tools");
-        if (listed == null || !listed.isArray()) return;
+        if (listed == null || !listed.isArray())
+            throw new McpCallException("INVALID_CATALOG", "工具目录缺少有效 tools 数组");
         for (JsonNode tool : listed) {
             String name = text(tool, "name");
-            if (name == null) continue;
+            if (name == null || name.length() > 255)
+                throw new McpCallException("INVALID_CATALOG", "工具目录包含无效名称");
             JsonNode schema = tool.get("inputSchema");
+            if (schema != null && !schema.isNull() && !schema.isObject())
+                throw new McpCallException("INVALID_CATALOG", "工具输入结构无效");
             Map<String, Object> inputSchema = schema != null && schema.isObject()
                     ? JSON.convertValue(schema, MAP)
                     : null;
@@ -248,6 +276,7 @@ public final class MantianxingMcpClient implements McpServer {
                     text(tool, "description"),
                     inputSchema,
                     writeOperation(name, readOnlyHint)));
+            if (tools.size() > 1000) throw new McpCallException("INVALID_CATALOG", "工具目录超过限制");
         }
     }
 
